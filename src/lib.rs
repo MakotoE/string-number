@@ -9,8 +9,8 @@ impl Add for StringNumber {
 
     fn add(self, rhs: Self) -> Self::Output {
         let mut result_digits: VecDeque<u8> = VecDeque::new();
-        let lhs_digits = Digits::new(&self.0);
-        let rhs_digits = Digits::new(&rhs.0);
+        let lhs_digits = Digits::new(&self);
+        let rhs_digits = Digits::new(&rhs);
 
         let mut carry = 0_u8;
 
@@ -68,10 +68,10 @@ struct Digits<'s> {
 }
 
 impl<'s> Digits<'s> {
-    fn new(s: &'s str) -> Self {
+    fn new(string_number: &'s StringNumber) -> Self {
         Self {
-            s,
-            decimal_index: s.len(),
+            s: &string_number.0,
+            decimal_index: string_number.0.find('.').unwrap_or(string_number.0.len()),
         }
     }
 
@@ -86,16 +86,27 @@ impl<'s> Digits<'s> {
     /// -1 = 1/10th digit
     /// 0 = 1s digit
     /// 1 = 10s digit
-    fn get_digit(&self, index: isize) -> u8 {
-        if index > self.s.len() as isize - 1 {
-            return 0;
+    fn get_digit(&self, mut index: isize) -> u8 {
+        if index < 0 {
+            // Skip past decimal point
+            index -= 1;
         }
 
-        self.s
-            .as_bytes()
-            .get(self.s.len() - index as usize - 1)
-            .copied()
-            .map_or(0, Digits::ascii_to_number)
+        if let Some(byte_index) = (self.decimal_index as isize).checked_sub(index + 1) {
+            self.s
+                .as_bytes()
+                .get(byte_index as usize)
+                .map_or(0, |&b| match b {
+                    b'-' => 0,
+                    _ => Digits::ascii_to_number(b),
+                })
+        } else {
+            0
+        }
+    }
+
+    fn is_negative(&self) -> bool {
+        self.s.starts_with('-')
     }
 }
 
@@ -103,6 +114,21 @@ impl<'s> Digits<'s> {
 mod tests {
     use super::*;
     use rstest::rstest;
+
+    #[rstest]
+    #[case(0.0, 0, 0)]
+    #[case(0.0, 1, 0)]
+    #[case(1.0, 0, 1)]
+    #[case(12.3, -2, 0)]
+    #[case(12.3, -1, 3)]
+    #[case(12.3, 0, 2)]
+    #[case(12.3, 1, 1)]
+    #[case(12.3, 2, 0)]
+    #[case(-1.0, 0, 1)]
+    #[case(-1.0, 1, 0)]
+    fn get_digit(#[case] number: f64, #[case] index: isize, #[case] expected: u8) {
+        assert_eq!(Digits::new(&number.into()).get_digit(index), expected);
+    }
 
     #[rstest]
     #[case(0.0, 0.0, 0.0)]
@@ -114,7 +140,9 @@ mod tests {
     #[case(15.0, 5.0, 20.0)]
     #[case(15.0, 16.0, 31.0)]
     #[case(55.0, 65.0, 120.0)]
-    // #[case(0.0, -0.0, 0.0)]
+    #[case(0.0, -0.0, 0.0)]
+    #[case(0.0, -1.0, -1.0)]
+    #[case(1.0, -1.0, 0.0)]
     // TODO negative and non-integer
     fn add(#[case] a: f64, #[case] b: f64, #[case] expected: f64) {
         assert_eq!(
