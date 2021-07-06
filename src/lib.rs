@@ -125,14 +125,18 @@ impl Add for StringNumber {
 
 impl PartialOrd for StringNumber {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let mut lhs_digits = Digits::new(self);
+        let mut rhs_digits = Digits::new(other);
+
+        if lhs_digits.is_nan() || rhs_digits.is_nan() {
+            return None;
+        }
+
         if self == &0.0.into() && other == &(-0.0).into()
             || self == &(-0.0).into() && other == &0.0.into()
         {
             return Some(Ordering::Equal);
         }
-
-        let mut lhs_digits = Digits::new(self);
-        let mut rhs_digits = Digits::new(other);
 
         let lhs_positive = self.get_positive();
         let rhs_positive = other.get_positive();
@@ -220,6 +224,10 @@ impl<'s> Digits<'s> {
         self.s.starts_with('-')
     }
 
+    fn is_nan(&self) -> bool {
+        self.s == f64::NAN.to_string()
+    }
+
     fn left_most_index(&self) -> isize {
         self.decimal_index as isize - 1
     }
@@ -298,15 +306,18 @@ mod tests {
     }
 
     #[rstest]
-    #[case(0.0, 0.0, Ordering::Equal)]
-    #[case(0.0, -0.0, Ordering::Equal)]
-    #[case(1.0, 0.0, Ordering::Greater)]
-    #[case(0.0, 1.0, Ordering::Less)]
-    #[case(0.0, -1.0, Ordering::Greater)]
-    #[case(-1.0, 0.0, Ordering::Less)]
-    #[case(-1.0, 1.0, Ordering::Less)]
-    #[case(1.0, -1.0, Ordering::Greater)]
-    fn partial_cmp(#[case] a: f64, #[case] b: f64, #[case] expected: Ordering) {
-        assert_eq!(StringNumber::from(a).partial_cmp(&b.into()), Some(expected));
+    #[case(0.0, 0.0, Some(Ordering::Equal))]
+    #[case(0.0, -0.0, Some(Ordering::Equal))]
+    #[case(1.0, 0.0, Some(Ordering::Greater))]
+    #[case(0.0, 1.0, Some(Ordering::Less))]
+    #[case(0.0, -1.0, Some(Ordering::Greater))]
+    #[case(-1.0, 0.0, Some(Ordering::Less))]
+    #[case(-1.0, 1.0, Some(Ordering::Less))]
+    #[case(1.0, -1.0, Some(Ordering::Greater))]
+    #[case(f64::NAN, f64::NAN, None)]
+    #[case(f64::INFINITY, 0.0, Some(Ordering::Greater))]
+    #[case(f64::NEG_INFINITY, 0.0, Some(Ordering::Less))]
+    fn partial_cmp(#[case] a: f64, #[case] b: f64, #[case] expected: Option<Ordering>) {
+        assert_eq!(StringNumber::from(a).partial_cmp(&b.into()), expected);
     }
 }
