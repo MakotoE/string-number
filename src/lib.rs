@@ -17,6 +17,13 @@ impl From<f64> for StringNumber {
     }
 }
 
+impl Into<f64> for StringNumber {
+    /// Doesn't return correct NaN
+    fn into(self) -> f64 {
+        self.0.parse().unwrap()
+    }
+}
+
 impl StringNumber {
     pub fn nan() -> Self {
         StringNumber::from(f64::NAN)
@@ -437,6 +444,13 @@ mod tests {
             StringNumber::from(a) + StringNumber::from(b),
             StringNumber::from(expected)
         );
+    }
+
+    #[quickcheck]
+    fn add_quickcheck(a: NoShrink<f64>, b: NoShrink<f64>) -> bool {
+        let a = a.into_inner();
+        let b = b.into_inner();
+        StringNumber::from(a) + StringNumber::from(b) == StringNumber::from(a + b)
     }
 
     #[rstest]
