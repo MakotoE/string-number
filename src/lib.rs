@@ -1,38 +1,195 @@
 use std::cmp::Ordering;
 use std::collections::VecDeque;
-use std::ops::Add;
+use std::ops::{Add, Sub};
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, Ord)]
 pub struct StringNumber(String);
 
 impl StringNumber {
-    pub fn get_positive(&self) -> Self {
-        Self(self.0.strip_prefix('-').unwrap_or(&self.0).to_string())
+    pub fn nan() -> Self {
+        StringNumber::from(f64::NAN)
     }
 
     pub fn negate(&self) -> Self {
-        if Digits::new(self).is_negative() {
-            Self(self.0.strip_prefix('-').unwrap_or(&self.0).to_string())
+        if let Some(s) = self.0.strip_prefix('-') {
+            Self(s.to_string())
         } else {
             Self('-'.to_string() + &self.0)
         }
     }
 
-    /// self and rhs must be positive.
-    fn add_positive_numbers(self, rhs: Self) -> StringNumber {
-        let mut result_digits: VecDeque<u8> = VecDeque::new();
-        let lhs_digits = Digits::new(&self);
-        let rhs_digits = Digits::new(&rhs);
+    fn is_zero(&self) -> bool {
+        self.0 == "0" || self.0 == "-0"
+    }
+}
 
-        debug_assert!(!lhs_digits.is_negative());
-        debug_assert!(!rhs_digits.is_negative());
+impl PartialEq for StringNumber {
+    fn eq(&self, other: &Self) -> bool {
+        if self.is_zero() && other.is_zero() {
+            true
+        } else {
+            self.0 == other.0
+        }
+    }
+}
+
+impl Add for StringNumber {
+    type Output = StringNumber;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let l = Number::new(&self.0);
+        let r = Number::new(&rhs.0);
+
+        match l {
+            Number::Positive(l) => match r {
+                Number::Positive(r) => l + r,
+                Number::Negative(r) => l - r.positive(),
+                Number::NaN => StringNumber::nan(),
+            },
+            Number::Negative(l) => match r {
+                Number::Positive(r) => r - l.positive(),
+                Number::Negative(r) => (l.positive() + r.positive()).negate(),
+                Number::NaN => StringNumber::nan(),
+            },
+            Number::NaN => StringNumber::nan(),
+        }
+    }
+}
+
+impl PartialOrd for StringNumber {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.is_zero() && other.is_zero() {
+            return Some(Ordering::Equal);
+        }
+
+        let lhs = Number::new(&self.0);
+        let rhs = Number::new(&other.0);
+
+        match lhs {
+            Number::NaN => None,
+            Number::Positive(l) => match rhs {
+                Number::NaN => None,
+                Number::Positive(r) => l.partial_cmp(&r),
+                Number::Negative(_) => Some(Ordering::Greater),
+            },
+            Number::Negative(l) => match rhs {
+                Number::NaN => None,
+                Number::Positive(_) => Some(Ordering::Less),
+                Number::Negative(r) => {
+                    Some(match l.positive().partial_cmp(&r.positive()).unwrap() {
+                        Ordering::Less => Ordering::Greater,
+                        Ordering::Greater => Ordering::Less,
+                        Ordering::Equal => Ordering::Equal,
+                    })
+                }
+            },
+        }
+    }
+}
+
+impl From<f64> for StringNumber {
+    fn from(n: f64) -> Self {
+        Self(n.to_string())
+    }
+}
+
+impl Default for StringNumber {
+    fn default() -> Self {
+        Self("0".to_string())
+    }
+}
+
+#[derive(Debug)]
+enum Number<'s> {
+    Positive(PositiveNumber<'s>),
+    Negative(NegativeNumber<'s>),
+    NaN,
+}
+
+impl<'s> Number<'s> {
+    fn new(s: &'s str) -> Self {
+        if s == StringNumber::nan().0 {
+            Number::NaN
+        } else if s.starts_with('-') {
+            Number::Negative(NegativeNumber::new(s))
+        } else {
+            Number::Positive(PositiveNumber::new(s))
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+struct PositiveNumber<'s> {
+    s: &'s str,
+    decimal_index: usize,
+}
+
+impl<'s> PositiveNumber<'s> {
+    fn new(s: &'s str) -> Self {
+        debug_assert!(!s.starts_with('-'));
+        Self {
+            s,
+            decimal_index: s.find('.').unwrap_or(s.len()),
+        }
+    }
+
+    fn is_inf(&self) -> bool {
+        self.s == f64::INFINITY.to_string()
+    }
+
+    fn left_most_index(&self) -> isize {
+        self.decimal_index as isize - 1
+    }
+
+    /// greater >= smaller
+    fn subtract_ordered(greater: Self, less: Self) -> StringNumber {
+        debug_assert!(greater >= less);
+
+        let mut result_digits: VecDeque<u8> = VecDeque::new();
+
+        let mut carry = 0_i8;
+
+        let mut digit = 0_isize;
+        loop {
+            let lhs_digit = greater.get_digit(digit) as i8;
+            let rhs_digit = less.get_digit(digit) as i8;
+            if lhs_digit == 0 && rhs_digit == 0 {
+                break;
+            }
+
+            let mut digit_difference = lhs_digit - carry - rhs_digit;
+            if digit_difference < 0 {
+                carry = 1;
+                digit_difference += 10;
+            } else {
+                carry = 0;
+            }
+            result_digits.push_front(digit_difference as u8);
+            digit += 1;
+        }
+
+        if result_digits.is_empty() {
+            result_digits.push_front(0);
+        }
+
+        let bytes: Vec<u8> = result_digits.iter().copied().map(number_to_ascii).collect();
+
+        StringNumber(String::from_utf8(bytes).unwrap())
+    }
+}
+
+impl Add for PositiveNumber<'_> {
+    type Output = StringNumber;
+
+    fn add(self, rhs: Self) -> StringNumber {
+        let mut result_digits: VecDeque<u8> = VecDeque::new();
 
         let mut carry = 0_u8;
 
         let mut digit = 0_isize;
         loop {
-            let lhs_digit = lhs_digits.get_digit(digit);
-            let rhs_digit = rhs_digits.get_digit(digit);
+            let lhs_digit = self.get_digit(digit);
+            let rhs_digit = rhs.get_digit(digit);
             if lhs_digit == 0 && rhs_digit == 0 {
                 break;
             }
@@ -56,230 +213,41 @@ impl StringNumber {
             result_digits.push_front(0);
         }
 
-        let bytes: Vec<u8> = result_digits
-            .iter()
-            .copied()
-            .map(Digits::number_to_ascii)
-            .collect();
-        StringNumber(String::from_utf8(bytes).unwrap())
-    }
-
-    /// self and rhs must be positive.
-    fn subtract_positive_numbers(self, rhs: Self) -> StringNumber {
-        if self > rhs {
-            StringNumber::subtract_ordered(self, rhs)
-        } else {
-            StringNumber::subtract_ordered(rhs, self).negate()
-        }
-    }
-
-    /// smaller > 0, greater >= smaller
-    fn subtract_ordered(greater: Self, less: Self) -> Self {
-        let mut result_digits: VecDeque<u8> = VecDeque::new();
-        let greater_digits = Digits::new(&greater);
-        let less_digits = Digits::new(&less);
-
-        debug_assert!(!less_digits.is_negative());
-        debug_assert!(greater >= less);
-
-        let mut carry = 0_i8;
-
-        let mut digit = 0_isize;
-        loop {
-            let lhs_digit = greater_digits.get_digit(digit) as i8;
-            let rhs_digit = less_digits.get_digit(digit) as i8;
-            if lhs_digit == 0 && rhs_digit == 0 {
-                break;
-            }
-
-            let mut digit_difference = lhs_digit - carry - rhs_digit;
-            if digit_difference < 0 {
-                carry = 1;
-                digit_difference += 10;
-            } else {
-                carry = 0;
-            }
-            result_digits.push_front(digit_difference as u8);
-            digit += 1;
-        }
-
-        if result_digits.is_empty() {
-            result_digits.push_front(0);
-        }
-
-        let bytes: Vec<u8> = result_digits
-            .iter()
-            .copied()
-            .map(Digits::number_to_ascii)
-            .collect();
-
+        let bytes: Vec<u8> = result_digits.iter().copied().map(number_to_ascii).collect();
         StringNumber(String::from_utf8(bytes).unwrap())
     }
 }
 
-impl Add for StringNumber {
+impl Sub for PositiveNumber<'_> {
     type Output = StringNumber;
 
-    fn add(self, rhs: Self) -> Self::Output {
-        let lhs_negative = Digits::new(&self).is_negative();
-        let rhs_negative = Digits::new(&rhs).is_negative();
-        if lhs_negative && rhs_negative {
-            self.get_positive().add_positive_numbers(rhs.get_positive())
-        } else if lhs_negative && !rhs_negative {
-            let result = rhs.subtract_positive_numbers(self.get_positive());
-            if result == StringNumber::from(-0.0) {
-                StringNumber::from(0.0)
-            } else {
-                result
-            }
-        } else if !lhs_negative && rhs_negative {
-            let result = self.subtract_positive_numbers(rhs.get_positive());
-            if result == StringNumber::from(-0.0) {
-                StringNumber::from(0.0)
-            } else {
-                result
-            }
+    fn sub(self, rhs: Self) -> Self::Output {
+        if self > rhs {
+            PositiveNumber::subtract_ordered(self, rhs)
         } else {
-            self.add_positive_numbers(rhs)
+            PositiveNumber::subtract_ordered(rhs, self).negate()
         }
     }
 }
 
-impl PartialOrd for StringNumber {
+impl PartialOrd for PositiveNumber<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let mut lhs_digits = Digits::new(self);
-        let mut rhs_digits = Digits::new(other);
-
-        if lhs_digits.is_nan() || rhs_digits.is_nan() {
-            return None;
-        }
-
-        if self == &0.0.into() && other == &(-0.0).into()
-            || self == &(-0.0).into() && other == &0.0.into()
-        {
+        if self.is_inf() && other.is_inf() {
             return Some(Ordering::Equal);
         }
-
-        let lhs_positive = self.get_positive();
-        let rhs_positive = other.get_positive();
-
-        if lhs_digits.is_negative() {
-            if !rhs_digits.is_negative() {
-                return Some(Ordering::Less);
-            }
-        } else {
-            if rhs_digits.is_negative() {
-                return Some(Ordering::Greater);
-            }
-        }
-
-        let flipped = lhs_digits.is_negative() && rhs_digits.is_negative();
-        if flipped {
-            lhs_digits = Digits::new(&lhs_positive);
-            rhs_digits = Digits::new(&rhs_positive);
-        };
-
-        Some(match lhs_digits.compare_positive(&rhs_digits) {
-            Ordering::Less if flipped => Ordering::Greater,
-            Ordering::Greater if flipped => Ordering::Less,
-            ordering => ordering,
-        })
-    }
-}
-
-impl From<f64> for StringNumber {
-    fn from(n: f64) -> Self {
-        Self(n.to_string())
-    }
-}
-
-impl Default for StringNumber {
-    fn default() -> Self {
-        Self("0".to_string())
-    }
-}
-
-struct Digits<'s> {
-    s: &'s str,
-    decimal_index: usize,
-}
-
-impl<'s> Digits<'s> {
-    fn new(string_number: &'s StringNumber) -> Self {
-        debug_assert!(string_number.0.matches('.').count() <= 1);
-        Self {
-            s: &string_number.0,
-            decimal_index: string_number.0.rfind('.').unwrap_or(string_number.0.len()),
-        }
-    }
-
-    fn ascii_to_number(b: u8) -> u8 {
-        b - b'0'
-    }
-
-    fn number_to_ascii(n: u8) -> u8 {
-        n + b'0'
-    }
-
-    /// -1 = 1/10th digit
-    /// 0 = 1s digit
-    /// 1 = 10s digit
-    fn get_digit(&self, mut index: isize) -> u8 {
-        if index < 0 {
-            // Skip past decimal point
-            index -= 1;
-        }
-
-        if let Some(byte_index) = (self.decimal_index as isize).checked_sub(index + 1) {
-            self.s
-                .as_bytes()
-                .get(byte_index as usize)
-                .map_or(0, |&b| match b {
-                    b'-' => 0,
-                    _ => Digits::ascii_to_number(b),
-                })
-        } else {
-            0
-        }
-    }
-
-    fn is_negative(&self) -> bool {
-        self.s.starts_with('-')
-    }
-
-    fn is_nan(&self) -> bool {
-        self.s == f64::NAN.to_string()
-    }
-
-    fn is_inf(&self) -> bool {
-        self.s == f64::INFINITY.to_string()
-    }
-
-    fn left_most_index(&self) -> isize {
-        self.decimal_index as isize - 1
-    }
-
-    /// self and rhs must be positive
-    fn compare_positive(&self, other: &Self) -> Ordering {
-        debug_assert!(!self.is_negative());
-        debug_assert!(!other.is_negative());
-
-        if self.is_inf() && other.is_inf() {
-            return Ordering::Equal;
-        }
         if self.is_inf() {
-            return Ordering::Greater;
+            return Some(Ordering::Greater);
         }
         if other.is_inf() {
-            return Ordering::Less;
+            return Some(Ordering::Less);
         }
 
         let mut lhs_index = self.left_most_index();
         let mut rhs_index = other.left_most_index();
 
         match lhs_index.partial_cmp(&rhs_index) {
-            Some(Ordering::Less) => return Ordering::Less,
-            Some(Ordering::Greater) => return Ordering::Greater,
+            Some(Ordering::Less) => return Some(Ordering::Less),
+            Some(Ordering::Greater) => return Some(Ordering::Greater),
             _ => {}
         }
 
@@ -288,13 +256,13 @@ impl<'s> Digits<'s> {
             let rhs_digit = other.get_digit(rhs_index);
 
             if lhs_digit == 0 && rhs_digit == 0 {
-                return Ordering::Equal;
+                return Some(Ordering::Equal);
             }
 
             match lhs_digit.partial_cmp(&rhs_digit) {
                 Some(ordering) => {
                     if matches!(ordering, Ordering::Less | Ordering::Greater) {
-                        return ordering;
+                        return Some(ordering);
                     }
                 }
                 None => unreachable!(),
@@ -306,13 +274,88 @@ impl<'s> Digits<'s> {
     }
 }
 
+impl GetDigit for PositiveNumber<'_> {
+    fn str(&self) -> &str {
+        self.s
+    }
+
+    fn decimal_index(&self) -> usize {
+        self.decimal_index
+    }
+}
+
+#[derive(Debug)]
+struct NegativeNumber<'s> {
+    s: &'s str,
+    decimal_index: usize,
+}
+
+impl<'s> NegativeNumber<'s> {
+    fn new(s: &'s str) -> Self {
+        let stripped = s.strip_prefix('-').unwrap();
+        Self {
+            s: stripped,
+            decimal_index: stripped.find('.').unwrap_or(stripped.len()),
+        }
+    }
+
+    fn positive(&self) -> PositiveNumber {
+        PositiveNumber {
+            s: self.s,
+            decimal_index: self.decimal_index,
+        }
+    }
+}
+
+impl GetDigit for NegativeNumber<'_> {
+    fn str(&self) -> &str {
+        self.s
+    }
+
+    fn decimal_index(&self) -> usize {
+        self.decimal_index
+    }
+}
+
+trait GetDigit {
+    fn str(&self) -> &str;
+
+    fn decimal_index(&self) -> usize;
+
+    fn get_digit(&self, mut index: isize) -> u8 {
+        if index < 0 {
+            // Skip past decimal point
+            index -= 1;
+        }
+
+        if let Some(byte_index) = (self.decimal_index() as isize).checked_sub(index + 1) {
+            self.str()
+                .as_bytes()
+                .get(byte_index as usize)
+                .map_or(0, |&b| match b {
+                    b'-' => 0,
+                    _ => ascii_to_number(b),
+                })
+        } else {
+            0
+        }
+    }
+}
+
+fn ascii_to_number(b: u8) -> u8 {
+    b - b'0'
+}
+
+fn number_to_ascii(n: u8) -> u8 {
+    n + b'0'
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quickcheck::{Arbitrary, Gen, QuickCheck};
+    use quickcheck::{Arbitrary, Gen};
     use quickcheck_macros::quickcheck;
     use rstest::rstest;
-    use std::io::Write;
 
     #[rstest]
     #[case(0.0, 0, 0)]
@@ -327,7 +370,15 @@ mod tests {
     #[case(-1.0, 0, 1)]
     #[case(-1.0, 1, 0)]
     fn get_digit(#[case] number: f64, #[case] index: isize, #[case] expected: u8) {
-        assert_eq!(Digits::new(&number.into()).get_digit(index), expected);
+        match Number::new(&StringNumber::from(number).0) {
+            Number::Positive(n) => {
+                assert_eq!(n.get_digit(index), expected)
+            }
+            Number::Negative(n) => {
+                assert_eq!(n.get_digit(index), expected)
+            }
+            Number::NaN => unreachable!(),
+        }
     }
 
     #[rstest]
