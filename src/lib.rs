@@ -10,6 +10,14 @@ impl StringNumber {
         Self(self.0.strip_prefix('-').unwrap_or(&self.0).to_string())
     }
 
+    pub fn negate(&self) -> Self {
+        if Digits::new(self).is_negative() {
+            Self(self.0.strip_prefix('-').unwrap_or(&self.0).to_string())
+        } else {
+            Self('-'.to_string() + &self.0)
+        }
+    }
+
     /// self and rhs must be positive.
     fn add_positive_numbers(self, rhs: Self) -> StringNumber {
         let mut result_digits: VecDeque<u8> = VecDeque::new();
@@ -58,24 +66,28 @@ impl StringNumber {
 
     /// self and rhs must be positive.
     fn subtract_positive_numbers(self, rhs: Self) -> StringNumber {
-        todo!()
+        if self > rhs {
+            StringNumber::subtract_ordered(self, rhs)
+        } else {
+            StringNumber::subtract_ordered(rhs, self).negate()
+        }
     }
 
     /// smaller > 0, greater >= smaller
-    fn subtract_ordered(greater: Self, smaller: Self) -> Self {
+    fn subtract_ordered(greater: Self, less: Self) -> Self {
         let mut result_digits: VecDeque<u8> = VecDeque::new();
-        let lhs_digits = Digits::new(&greater);
-        let rhs_digits = Digits::new(&smaller);
+        let greater_digits = Digits::new(&greater);
+        let less_digits = Digits::new(&less);
 
-        debug_assert!(!lhs_digits.is_negative());
-        debug_assert!(!rhs_digits.is_negative());
+        debug_assert!(!less_digits.is_negative());
+        debug_assert!(greater >= less);
 
         let mut carry = 0_i8;
 
         let mut digit = 0_isize;
         loop {
-            let lhs_digit = lhs_digits.get_digit(digit) as i8;
-            let rhs_digit = rhs_digits.get_digit(digit) as i8;
+            let lhs_digit = greater_digits.get_digit(digit) as i8;
+            let rhs_digit = less_digits.get_digit(digit) as i8;
             if lhs_digit == 0 && rhs_digit == 0 {
                 break;
             }
@@ -114,9 +126,19 @@ impl Add for StringNumber {
         if lhs_negative && rhs_negative {
             self.get_positive().add_positive_numbers(rhs.get_positive())
         } else if lhs_negative && !rhs_negative {
-            rhs.subtract_positive_numbers(self.get_positive())
+            let result = rhs.subtract_positive_numbers(self.get_positive());
+            if result == StringNumber::from(-0.0) {
+                StringNumber::from(0.0)
+            } else {
+                result
+            }
         } else if !lhs_negative && rhs_negative {
-            self.subtract_positive_numbers(rhs.get_positive())
+            let result = self.subtract_positive_numbers(rhs.get_positive());
+            if result == StringNumber::from(-0.0) {
+                StringNumber::from(0.0)
+            } else {
+                result
+            }
         } else {
             self.add_positive_numbers(rhs)
         }
