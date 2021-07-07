@@ -22,8 +22,18 @@ impl StringNumber {
         StringNumber::from(f64::NAN)
     }
 
+    pub fn infinity() -> Self {
+        StringNumber::from(f64::INFINITY)
+    }
+
+    pub fn neg_infinity() -> Self {
+        StringNumber::from(f64::NEG_INFINITY)
+    }
+
     pub fn negate(&self) -> Self {
-        if let Some(s) = self.0.strip_prefix('-') {
+        if self == &StringNumber::nan() {
+            self.clone()
+        } else if let Some(s) = self.0.strip_prefix('-') {
             Self(s.to_string())
         } else {
             Self('-'.to_string() + &self.0)
@@ -149,6 +159,16 @@ impl<'s> PositiveNumber<'s> {
     fn subtract_ordered(greater: Self, less: Self) -> StringNumber {
         debug_assert!(greater >= less);
 
+        if greater.is_inf() {
+            return if less.is_inf() {
+                StringNumber::nan()
+            } else {
+                StringNumber::infinity()
+            };
+        } else if less.is_inf() {
+            return StringNumber::neg_infinity();
+        }
+
         let mut result_digits: VecDeque<u8> = VecDeque::new();
 
         let mut carry = 0_i8;
@@ -189,6 +209,10 @@ impl Add for PositiveNumber<'_> {
     type Output = StringNumber;
 
     fn add(self, rhs: Self) -> StringNumber {
+        if self.is_inf() || rhs.is_inf() {
+            return StringNumber::infinity();
+        }
+
         let mut result_digits: VecDeque<u8> = VecDeque::new();
 
         let mut carry = 0_u8;
@@ -403,6 +427,11 @@ mod tests {
     #[case(0.1, 0.02, 0.12)] // 16
     #[case(0.09, 0.03, 0.12)] // 17
     #[case(0.9, 0.3, 1.2)] // 18
+    #[case(f64::NAN, 0.0, f64::NAN)] // 19
+    #[case(f64::INFINITY, 1.0, f64::INFINITY)] // 20
+    #[case(f64::NEG_INFINITY, 1.0, f64::NEG_INFINITY)] // 21
+    #[case(f64::NEG_INFINITY, f64::INFINITY, f64::NAN)] // 22
+    #[case(f64::INFINITY, f64::NEG_INFINITY, f64::NAN)] // 23
     fn add(#[case] a: f64, #[case] b: f64, #[case] expected: f64) {
         assert_eq!(
             StringNumber::from(a) + StringNumber::from(b),
@@ -427,6 +456,7 @@ mod tests {
     #[case(f64::INFINITY, 0.0, Some(Ordering::Greater))] // 14
     #[case(1000.0, f64::INFINITY, Some(Ordering::Less))] // 15
     #[case(f64::NEG_INFINITY, 0.0, Some(Ordering::Less))] // 16
+    #[case(f64::NEG_INFINITY, f64::INFINITY, Some(Ordering::Less))] // 17
     fn partial_cmp(#[case] a: f64, #[case] b: f64, #[case] expected: Option<Ordering>) {
         assert_eq!(StringNumber::from(a).partial_cmp(&b.into()), expected);
     }
