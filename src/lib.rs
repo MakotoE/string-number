@@ -31,7 +31,7 @@ impl StringNumber {
     }
 
     fn is_zero(&self) -> bool {
-        self.0 == "0" || self.0 == "-0"
+        matches!(self.0.as_str(), "0" | "-0" | "0.0" | "-0.0")
     }
 }
 
@@ -121,16 +121,16 @@ impl<'s> Number<'s> {
 #[derive(Debug, PartialEq)]
 struct PositiveNumber<'s> {
     s: &'s str,
+    // decimal_index >= 1
     decimal_index: usize,
 }
 
 impl<'s> PositiveNumber<'s> {
     fn new(s: &'s str) -> Self {
         debug_assert!(!s.starts_with('-'));
-        Self {
-            s,
-            decimal_index: s.find('.').unwrap_or(s.len()),
-        }
+        let decimal_index = s.find('.').unwrap_or(s.len());
+        debug_assert!(decimal_index >= 1);
+        Self { s, decimal_index }
     }
 
     fn is_inf(&self) -> bool {
@@ -153,13 +153,11 @@ impl<'s> PositiveNumber<'s> {
 
         let mut carry = 0_i8;
 
-        let mut digit = 0_isize;
-        loop {
-            let lhs_digit = greater.get_digit(digit) as i8;
-            let rhs_digit = less.get_digit(digit) as i8;
-            if lhs_digit == 0 && rhs_digit == 0 {
-                break;
-            }
+        for index in isize::min(greater.right_most_index(), less.right_most_index())
+            ..=isize::max(greater.left_most_index(), less.left_most_index())
+        {
+            let lhs_digit = greater.get_digit(index) as i8;
+            let rhs_digit = less.get_digit(index) as i8;
 
             let mut digit_difference = lhs_digit - carry - rhs_digit;
             if digit_difference < 0 {
@@ -169,15 +167,20 @@ impl<'s> PositiveNumber<'s> {
                 carry = 0;
             }
             result_digits.push_front(digit_difference as u8);
-            digit += 1;
         }
 
         if result_digits.is_empty() {
             result_digits.push_front(0);
         }
 
-        let bytes: Vec<u8> = result_digits.iter().copied().map(number_to_ascii).collect();
-
+        let mut bytes: Vec<u8> = result_digits.iter().copied().map(number_to_ascii).collect();
+        let decimal_index = usize::max(greater.decimal_index, less.decimal_index);
+        if decimal_index + 1 < greater.s.len() {
+            bytes.insert(decimal_index, b'.');
+        }
+        if decimal_index == 0 {
+            bytes.insert(0, b'0');
+        }
         StringNumber(String::from_utf8(bytes).unwrap())
     }
 }
@@ -190,13 +193,11 @@ impl Add for PositiveNumber<'_> {
 
         let mut carry = 0_u8;
 
-        let mut digit = 0_isize;
-        loop {
-            let lhs_digit = self.get_digit(digit);
-            let rhs_digit = rhs.get_digit(digit);
-            if lhs_digit == 0 && rhs_digit == 0 {
-                break;
-            }
+        for index in isize::min(self.right_most_index(), rhs.right_most_index())
+            ..=isize::max(self.left_most_index(), rhs.left_most_index())
+        {
+            let lhs_digit = self.get_digit(index);
+            let rhs_digit = rhs.get_digit(index);
 
             let mut digit_sum = lhs_digit + rhs_digit + carry;
             if digit_sum >= 10 {
@@ -206,7 +207,6 @@ impl Add for PositiveNumber<'_> {
                 carry = 0;
             }
             result_digits.push_front(digit_sum);
-            digit += 1;
         }
 
         if carry > 0 {
@@ -217,7 +217,14 @@ impl Add for PositiveNumber<'_> {
             result_digits.push_front(0);
         }
 
-        let bytes: Vec<u8> = result_digits.iter().copied().map(number_to_ascii).collect();
+        let mut bytes: Vec<u8> = result_digits.iter().copied().map(number_to_ascii).collect();
+        let decimal_index = usize::max(self.decimal_index, rhs.decimal_index);
+        if decimal_index + 1 < self.s.len() {
+            bytes.insert(decimal_index, b'.');
+        }
+        if decimal_index == 0 {
+            bytes.insert(0, b'0');
+        }
         StringNumber(String::from_utf8(bytes).unwrap())
     }
 }
@@ -236,45 +243,34 @@ impl Sub for PositiveNumber<'_> {
 
 impl PartialOrd for PositiveNumber<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.is_inf() && other.is_inf() {
-            return Some(Ordering::Equal);
-        }
         if self.is_inf() {
-            return Some(Ordering::Greater);
-        }
-        if other.is_inf() {
+            return if other.is_inf() {
+                Some(Ordering::Equal)
+            } else {
+                Some(Ordering::Greater)
+            };
+        } else if other.is_inf() {
             return Some(Ordering::Less);
         }
 
-        let mut lhs_index = self.left_most_index();
-        let mut rhs_index = other.left_most_index();
-
-        match lhs_index.partial_cmp(&rhs_index) {
+        match self.left_most_index().partial_cmp(&other.left_most_index()) {
             Some(Ordering::Less) => return Some(Ordering::Less),
             Some(Ordering::Greater) => return Some(Ordering::Greater),
             _ => {}
         }
 
-        loop {
-            let lhs_digit = self.get_digit(lhs_index);
-            let rhs_digit = other.get_digit(rhs_index);
+        for index in (self.right_most_index()..=self.left_most_index()).rev() {
+            let lhs_digit = self.get_digit(index);
+            let rhs_digit = other.get_digit(index);
 
-            if lhs_digit == 0 && rhs_digit == 0 {
-                return Some(Ordering::Equal);
-            }
-
-            match lhs_digit.partial_cmp(&rhs_digit) {
-                Some(ordering) => {
-                    if matches!(ordering, Ordering::Less | Ordering::Greater) {
-                        return Some(ordering);
-                    }
+            match lhs_digit.cmp(&rhs_digit) {
+                Ordering::Equal => {}
+                ordering => {
+                    return Some(ordering);
                 }
-                None => unreachable!(),
             }
-
-            lhs_index -= 1;
-            rhs_index -= 1;
         }
+        Some(Ordering::Equal)
     }
 }
 
@@ -291,15 +287,18 @@ impl GetDigit for PositiveNumber<'_> {
 #[derive(Debug)]
 struct NegativeNumber<'s> {
     s: &'s str,
+    // decimal_index >= 1
     decimal_index: usize,
 }
 
 impl<'s> NegativeNumber<'s> {
     fn new(s: &'s str) -> Self {
         let stripped = s.strip_prefix('-').unwrap();
+        let decimal_index = stripped.find('.').unwrap_or(stripped.len());
+        debug_assert!(decimal_index >= 1);
         Self {
             s: stripped,
-            decimal_index: stripped.find('.').unwrap_or(stripped.len()),
+            decimal_index,
         }
     }
 
@@ -399,6 +398,11 @@ mod tests {
     #[case(0.0, -1.0, -1.0)] // 11
     #[case(1.0, -1.0, 0.0)] // 12
     #[case(0.1, 0.2, 0.3)] // 13
+    #[case(0.1, -0.2, -0.1)] // 14
+    #[case(-0.1, 0.2, 0.1)] // 15
+    #[case(0.1, 0.02, 0.12)] // 16
+    #[case(0.09, 0.03, 0.12)] // 17
+    #[case(0.9, 0.3, 1.2)] // 18
     fn add(#[case] a: f64, #[case] b: f64, #[case] expected: f64) {
         assert_eq!(
             StringNumber::from(a) + StringNumber::from(b),
@@ -407,20 +411,22 @@ mod tests {
     }
 
     #[rstest]
-    #[case(0.0, 0.0, Some(Ordering::Equal))]
-    #[case(0.0, -0.0, Some(Ordering::Equal))]
-    #[case(1.0, 0.0, Some(Ordering::Greater))]
-    #[case(0.0, 1.0, Some(Ordering::Less))]
-    #[case(0.0, -1.0, Some(Ordering::Greater))]
-    #[case(-1.0, 0.0, Some(Ordering::Less))]
-    #[case(-1.0, 1.0, Some(Ordering::Less))]
-    #[case(1.0, -1.0, Some(Ordering::Greater))]
-    #[case(120.0, 21.0, Some(Ordering::Greater))]
-    #[case(-120.0, -21.0, Some(Ordering::Less))]
-    #[case(f64::NAN, f64::NAN, None)]
-    #[case(f64::INFINITY, 0.0, Some(Ordering::Greater))]
-    #[case(1000.0, f64::INFINITY, Some(Ordering::Less))]
-    #[case(f64::NEG_INFINITY, 0.0, Some(Ordering::Less))]
+    #[case(0.0, 0.0, Some(Ordering::Equal))] // 1
+    #[case(0.0, -0.0, Some(Ordering::Equal))] // 2
+    #[case(1.0, 0.0, Some(Ordering::Greater))] // 3
+    #[case(0.0, 1.0, Some(Ordering::Less))] // 4
+    #[case(0.0, -1.0, Some(Ordering::Greater))] // 5
+    #[case(-1.0, 0.0, Some(Ordering::Less))] // 6
+    #[case(-1.0, 1.0, Some(Ordering::Less))] // 7
+    #[case(1.0, -1.0, Some(Ordering::Greater))] // 8
+    #[case(120.0, 21.0, Some(Ordering::Greater))] // 9
+    #[case(-120.0, -21.0, Some(Ordering::Less))] // 10
+    #[case(0.1, 0.2, Some(Ordering::Less))] // 11
+    #[case(0.2, 0.1, Some(Ordering::Greater))] // 12
+    #[case(f64::NAN, f64::NAN, None)] // 13
+    #[case(f64::INFINITY, 0.0, Some(Ordering::Greater))] // 14
+    #[case(1000.0, f64::INFINITY, Some(Ordering::Less))] // 15
+    #[case(f64::NEG_INFINITY, 0.0, Some(Ordering::Less))] // 16
     fn partial_cmp(#[case] a: f64, #[case] b: f64, #[case] expected: Option<Ordering>) {
         assert_eq!(StringNumber::from(a).partial_cmp(&b.into()), expected);
     }
