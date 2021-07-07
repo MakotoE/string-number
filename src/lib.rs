@@ -141,6 +141,10 @@ impl<'s> PositiveNumber<'s> {
         self.decimal_index as isize - 1
     }
 
+    fn right_most_index(&self) -> isize {
+        ((self.s.len() - self.decimal_index).saturating_sub(1)) as isize * -1
+    }
+
     /// greater >= smaller
     fn subtract_ordered(greater: Self, less: Self) -> StringNumber {
         debug_assert!(greater >= less);
@@ -394,7 +398,7 @@ mod tests {
     #[case(0.0, -0.0, 0.0)] // 10
     #[case(0.0, -1.0, -1.0)] // 11
     #[case(1.0, -1.0, 0.0)] // 12
-                            // TODO negative and non-integer
+    #[case(0.1, 0.2, 0.3)] // 13
     fn add(#[case] a: f64, #[case] b: f64, #[case] expected: f64) {
         assert_eq!(
             StringNumber::from(a) + StringNumber::from(b),
@@ -426,6 +430,22 @@ mod tests {
         let a = a.into_inner();
         let b = b.into_inner();
         StringNumber::from(a).partial_cmp(&b.into()) == a.partial_cmp(&b)
+    }
+
+    #[rstest]
+    #[case(0.0, 0, 0)]
+    #[case(1.0, 0, 0)]
+    #[case(1.2, 0, -1)]
+    #[case(12.34, 1, -2)]
+    fn left_most_index_right_most_index(
+        #[case] f: f64,
+        #[case] expected_left_most_index: isize,
+        #[case] expected_right_most_index: isize,
+    ) {
+        let s = f.to_string();
+        let number = PositiveNumber::new(&s);
+        assert_eq!(number.left_most_index(), expected_left_most_index);
+        assert_eq!(number.right_most_index(), expected_right_most_index);
     }
 
     // https://github.com/BurntSushi/quickcheck/pull/293/files
