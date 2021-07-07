@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::ops::{Add, Sub};
 
-#[derive(Debug, Clone, Eq, Ord)]
+#[derive(Debug, Clone, Eq)]
 pub struct StringNumber(String);
 
 impl StringNumber {
