@@ -95,7 +95,7 @@ impl StringNumber {
             result_digits.push_front(0);
         }
 
-        let mut bytes: Vec<u8> = result_digits
+        let bytes: Vec<u8> = result_digits
             .iter()
             .copied()
             .map(Digits::number_to_ascii)
@@ -184,9 +184,10 @@ struct Digits<'s> {
 
 impl<'s> Digits<'s> {
     fn new(string_number: &'s StringNumber) -> Self {
+        debug_assert!(string_number.0.matches('.').count() <= 1);
         Self {
             s: &string_number.0,
-            decimal_index: string_number.0.find('.').unwrap_or(string_number.0.len()),
+            decimal_index: string_number.0.rfind('.').unwrap_or(string_number.0.len()),
         }
     }
 
@@ -228,6 +229,10 @@ impl<'s> Digits<'s> {
         self.s == f64::NAN.to_string()
     }
 
+    fn is_inf(&self) -> bool {
+        self.s == f64::INFINITY.to_string()
+    }
+
     fn left_most_index(&self) -> isize {
         self.decimal_index as isize - 1
     }
@@ -237,8 +242,24 @@ impl<'s> Digits<'s> {
         debug_assert!(!self.is_negative());
         debug_assert!(!other.is_negative());
 
+        if self.is_inf() && other.is_inf() {
+            return Ordering::Equal;
+        }
+        if self.is_inf() {
+            return Ordering::Greater;
+        }
+        if other.is_inf() {
+            return Ordering::Less;
+        }
+
         let mut lhs_index = self.left_most_index();
         let mut rhs_index = other.left_most_index();
+
+        match lhs_index.partial_cmp(&rhs_index) {
+            Some(Ordering::Less) => return Ordering::Less,
+            Some(Ordering::Greater) => return Ordering::Greater,
+            _ => {}
+        }
 
         loop {
             let lhs_digit = self.get_digit(lhs_index);
@@ -266,7 +287,10 @@ impl<'s> Digits<'s> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quickcheck::{Arbitrary, Gen, QuickCheck};
+    use quickcheck_macros::quickcheck;
     use rstest::rstest;
+    use std::io::Write;
 
     #[rstest]
     #[case(0.0, 0, 0)]
@@ -314,10 +338,47 @@ mod tests {
     #[case(-1.0, 0.0, Some(Ordering::Less))]
     #[case(-1.0, 1.0, Some(Ordering::Less))]
     #[case(1.0, -1.0, Some(Ordering::Greater))]
+    #[case(120.0, 21.0, Some(Ordering::Greater))]
+    #[case(-120.0, -21.0, Some(Ordering::Less))]
     #[case(f64::NAN, f64::NAN, None)]
     #[case(f64::INFINITY, 0.0, Some(Ordering::Greater))]
+    #[case(1000.0, f64::INFINITY, Some(Ordering::Less))]
     #[case(f64::NEG_INFINITY, 0.0, Some(Ordering::Less))]
     fn partial_cmp(#[case] a: f64, #[case] b: f64, #[case] expected: Option<Ordering>) {
         assert_eq!(StringNumber::from(a).partial_cmp(&b.into()), expected);
+    }
+
+    #[quickcheck]
+    fn partial_cmp_quickcheck(a: NoShrink<f64>, b: NoShrink<f64>) -> bool {
+        let a = a.into_inner();
+        let b = b.into_inner();
+        StringNumber::from(a).partial_cmp(&b.into()) == a.partial_cmp(&b)
+    }
+
+    // https://github.com/BurntSushi/quickcheck/pull/293/files
+    #[derive(Clone, Debug)]
+    pub struct NoShrink<A: Arbitrary> {
+        inner: A,
+    }
+
+    impl<A: Arbitrary> NoShrink<A> {
+        /// Unwrap the inner value
+        pub fn into_inner(self) -> A {
+            self.inner
+        }
+    }
+
+    impl<A: Arbitrary> Arbitrary for NoShrink<A> {
+        fn arbitrary(gen: &mut Gen) -> Self {
+            Self {
+                inner: Arbitrary::arbitrary(gen),
+            }
+        }
+    }
+
+    impl<A: Arbitrary> AsRef<A> for NoShrink<A> {
+        fn as_ref(&self) -> &A {
+            &self.inner
+        }
     }
 }
