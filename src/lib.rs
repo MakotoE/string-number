@@ -5,6 +5,18 @@ use std::ops::{Add, Sub};
 #[derive(Debug, Clone, Eq)]
 pub struct StringNumber(String);
 
+impl Default for StringNumber {
+    fn default() -> Self {
+        Self("0".to_string())
+    }
+}
+
+impl From<f64> for StringNumber {
+    fn from(n: f64) -> Self {
+        Self(n.to_string())
+    }
+}
+
 impl StringNumber {
     pub fn nan() -> Self {
         StringNumber::from(f64::NAN)
@@ -84,18 +96,6 @@ impl PartialOrd for StringNumber {
                 }
             },
         }
-    }
-}
-
-impl From<f64> for StringNumber {
-    fn from(n: f64) -> Self {
-        Self(n.to_string())
-    }
-}
-
-impl Default for StringNumber {
-    fn default() -> Self {
-        Self("0".to_string())
     }
 }
 
