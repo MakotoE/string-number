@@ -5,8 +5,10 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0"
+bigdecimal = "0.2"
 
 [dev-dependencies]
 rstest = "0.10"
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
+num-bigint = "0.3"
