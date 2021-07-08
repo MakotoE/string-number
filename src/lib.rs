@@ -52,14 +52,27 @@ impl StringNumber {
         StringNumber(NEG_INFINITY_STR.to_string())
     }
 
-    pub fn negate(&self) -> Self {
-        if self == &StringNumber::nan() {
-            self.clone()
-        } else if let Some(s) = self.0.strip_prefix('-') {
-            Self(s.to_string())
-        } else {
-            Self('-'.to_string() + &self.0)
+    pub fn is_nan(&self) -> bool {
+        self.0 == NAN_STR
+    }
+
+    pub fn is_infinity(&self) -> bool {
+        self.0 == INFINITY_STR
+    }
+
+    pub fn is_neg_infinity(&self) -> bool {
+        self.0 == NEG_INFINITY_STR
+    }
+
+    pub fn negate(mut self) -> Self {
+        if !self.is_nan() {
+            if self.0.starts_with('-') {
+                self.0.remove(0);
+            } else {
+                self.0.insert(0, '-');
+            }
         }
+        self
     }
 
     fn is_zero(&self) -> bool {
@@ -140,7 +153,7 @@ enum Number<'s> {
 
 impl<'s> Number<'s> {
     fn new(s: &'s str) -> Self {
-        if s == StringNumber::nan().0 {
+        if s == NAN_STR {
             Number::NaN
         } else if s.starts_with('-') {
             Number::Negative(NegativeNumber::new(s))
@@ -228,7 +241,13 @@ impl<'s> PositiveNumber<'s> {
             bytes.push(b'0');
             decimal_index += 1;
         }
-        bytes.extend(digits.iter().rev().copied().map(number_to_ascii));
+        bytes.extend(
+            digits
+                .iter()
+                .rev()
+                .copied()
+                .map(PositiveNumber::number_to_ascii),
+        );
 
         bytes.insert(decimal_index, b'.');
         // bytes ends with '.'
@@ -237,6 +256,10 @@ impl<'s> PositiveNumber<'s> {
         }
 
         StringNumber(String::from_utf8(bytes).unwrap())
+    }
+
+    fn number_to_ascii(n: u8) -> u8 {
+        n + b'0'
     }
 }
 
@@ -397,10 +420,6 @@ trait GetDigit {
 
 fn ascii_to_number(b: u8) -> u8 {
     b - b'0'
-}
-
-fn number_to_ascii(n: u8) -> u8 {
-    n + b'0'
 }
 
 #[cfg(test)]
