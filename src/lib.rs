@@ -32,10 +32,10 @@ impl From<&BigDecimal> for StringNumber {
     }
 }
 
-impl Into<f64> for StringNumber {
+impl From<StringNumber> for f64 {
     /// Doesn't return correct NaN value
-    fn into(self) -> f64 {
-        self.0.parse().unwrap()
+    fn from(s: StringNumber) -> Self {
+        s.0.parse().unwrap()
     }
 }
 
@@ -185,7 +185,7 @@ impl<'s> PositiveNumber<'s> {
     }
 
     fn right_most_index(&self) -> isize {
-        ((self.s.len() - self.decimal_index).saturating_sub(1)) as isize * -1
+        -(((self.s.len() - self.decimal_index).saturating_sub(1)) as isize)
     }
 
     /// greater >= smaller
