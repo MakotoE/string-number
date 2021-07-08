@@ -1,6 +1,5 @@
 use bigdecimal::BigDecimal;
 use std::cmp::Ordering;
-use std::collections::VecDeque;
 use std::ops::{Add, Sub};
 
 const INFINITY_STR: &str = "inf";
@@ -20,6 +19,7 @@ impl From<f64> for StringNumber {
     fn from(n: f64) -> Self {
         let mut s = n.to_string();
         if !(s == INFINITY_STR || s == NEG_INFINITY_STR || s == NAN_STR || s.contains('.')) {
+            // Number should end with ".0"
             s.push_str(".0");
         }
         Self(s)
@@ -33,7 +33,7 @@ impl From<&BigDecimal> for StringNumber {
 }
 
 impl Into<f64> for StringNumber {
-    /// Doesn't return correct NaN
+    /// Doesn't return correct NaN value
     fn into(self) -> f64 {
         self.0.parse().unwrap()
     }
@@ -41,15 +41,15 @@ impl Into<f64> for StringNumber {
 
 impl StringNumber {
     pub fn nan() -> Self {
-        StringNumber::from(f64::NAN)
+        StringNumber(NAN_STR.to_string())
     }
 
     pub fn infinity() -> Self {
-        StringNumber::from(f64::INFINITY)
+        StringNumber(INFINITY_STR.to_string())
     }
 
     pub fn neg_infinity() -> Self {
-        StringNumber::from(f64::NEG_INFINITY)
+        StringNumber(NEG_INFINITY_STR.to_string())
     }
 
     pub fn negate(&self) -> Self {
@@ -63,7 +63,7 @@ impl StringNumber {
     }
 
     fn is_zero(&self) -> bool {
-        matches!(self.0.as_str(), "0" | "-0" | "0.0" | "-0.0")
+        matches!(self.0.as_str(), "0.0" | "-0.0")
     }
 }
 
@@ -191,7 +191,7 @@ impl<'s> PositiveNumber<'s> {
             return StringNumber::neg_infinity();
         }
 
-        let mut result_digits: VecDeque<u8> = VecDeque::new();
+        let mut result_digits: Vec<u8> = Vec::new();
 
         let mut carry = 0_i8;
 
@@ -208,19 +208,34 @@ impl<'s> PositiveNumber<'s> {
             } else {
                 carry = 0;
             }
-            result_digits.push_front(digit_difference as u8);
+            result_digits.push(digit_difference as u8);
         }
 
-        if result_digits.is_empty() {
-            result_digits.push_front(0);
+        PositiveNumber::digits_to_string(
+            result_digits,
+            usize::max(greater.decimal_index, less.decimal_index),
+        )
+    }
+
+    fn digits_to_string(mut digits: Vec<u8>, mut decimal_index: usize) -> StringNumber {
+        if digits.is_empty() {
+            digits.push(0);
         }
 
-        let mut bytes: Vec<u8> = result_digits.iter().copied().map(number_to_ascii).collect();
-        let decimal_index = usize::max(greater.decimal_index, less.decimal_index);
-        bytes.insert(decimal_index, b'.');
+        let mut bytes: Vec<u8> = Vec::new();
         if decimal_index == 0 {
-            bytes.insert(0, b'0');
+            // bytes starts with '.'
+            bytes.push(b'0');
+            decimal_index += 1;
         }
+        bytes.extend(digits.iter().rev().copied().map(number_to_ascii));
+
+        bytes.insert(decimal_index, b'.');
+        // bytes ends with '.'
+        if decimal_index == bytes.len() - 1 {
+            bytes.push(b'0');
+        }
+
         StringNumber(String::from_utf8(bytes).unwrap())
     }
 }
@@ -233,8 +248,7 @@ impl Add for PositiveNumber<'_> {
             return StringNumber::infinity();
         }
 
-        // TODO don't use VecDeque
-        let mut result_digits: VecDeque<u8> = VecDeque::new();
+        let mut result_digits: Vec<u8> = Vec::new();
 
         let mut carry = 0_u8;
 
@@ -251,27 +265,17 @@ impl Add for PositiveNumber<'_> {
             } else {
                 carry = 0;
             }
-            result_digits.push_front(digit_sum);
+            result_digits.push(digit_sum);
         }
 
         if carry > 0 {
-            result_digits.push_front(carry);
+            result_digits.push(carry);
         }
 
-        if result_digits.is_empty() {
-            result_digits.push_front(0);
-        }
-
-        let mut bytes: Vec<u8> = result_digits.iter().copied().map(number_to_ascii).collect();
-        let decimal_index = usize::max(self.decimal_index, rhs.decimal_index);
-        bytes.insert(decimal_index + carry as usize, b'.');
-        if decimal_index == bytes.len() - 1 {
-            bytes.push(b'0');
-        }
-        if decimal_index == 0 {
-            bytes.insert(0, b'0');
-        }
-        StringNumber(String::from_utf8(bytes).unwrap())
+        PositiveNumber::digits_to_string(
+            result_digits,
+            usize::max(self.decimal_index, rhs.decimal_index) + carry as usize,
+        )
     }
 }
 
@@ -407,6 +411,7 @@ mod tests {
     use quickcheck_macros::quickcheck;
     use rstest::rstest;
     use std::ops::Deref;
+    use std::panic::{set_hook, take_hook};
 
     #[rstest]
     #[case(0.0, 0, 0)]
@@ -516,6 +521,36 @@ mod tests {
         let number = PositiveNumber::new(&s);
         assert_eq!(number.left_most_index(), expected_left_most_index);
         assert_eq!(number.right_most_index(), expected_right_most_index);
+    }
+
+    #[rstest]
+    #[case(vec![], 0, "0.0")]
+    #[case(vec![0], 0, "0.0")]
+    #[case(vec![0], 1, "0.0")]
+    #[case(vec![1, 0], 0, "0.01")]
+    #[case(vec![1, 0], 1, "0.1")]
+    #[case(vec![1, 0], 2, "01.0")]
+    #[case(vec![0, 1], 0, "0.10")]
+    #[case(vec![0, 1], 1, "1.0")]
+    #[case(vec![0, 1], 2, "10.0")]
+    fn digits_to_string(
+        #[case] digits: Vec<u8>,
+        #[case] decimal_index: usize,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(
+            PositiveNumber::digits_to_string(digits, decimal_index),
+            StringNumber(expected.to_string())
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn digits_to_string_panic() {
+        let prev_hook = take_hook();
+        set_hook(Box::new(|_| {}));
+        PositiveNumber::digits_to_string(vec![], 2);
+        set_hook(prev_hook);
     }
 
     #[derive(Debug, Clone)]
