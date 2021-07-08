@@ -98,17 +98,17 @@ impl Add for StringNumber {
         let r = Number::new(&rhs.0);
 
         match l {
+            Number::NaN => StringNumber::nan(),
             Number::Positive(l) => match r {
+                Number::NaN => StringNumber::nan(),
                 Number::Positive(r) => l + r,
                 Number::Negative(r) => l - r.positive(),
-                Number::NaN => StringNumber::nan(),
             },
             Number::Negative(l) => match r {
+                Number::NaN => StringNumber::nan(),
                 Number::Positive(r) => r - l.positive(),
                 Number::Negative(r) => (l.positive() + r.positive()).negate(),
-                Number::NaN => StringNumber::nan(),
             },
-            Number::NaN => StringNumber::nan(),
         }
     }
 }
@@ -126,19 +126,17 @@ impl PartialOrd for StringNumber {
             Number::NaN => None,
             Number::Positive(l) => match rhs {
                 Number::NaN => None,
-                Number::Positive(r) => l.partial_cmp(&r),
+                Number::Positive(r) => Some(l.cmp(&r)),
                 Number::Negative(_) => Some(Ordering::Greater),
             },
             Number::Negative(l) => match rhs {
                 Number::NaN => None,
                 Number::Positive(_) => Some(Ordering::Less),
-                Number::Negative(r) => {
-                    Some(match l.positive().partial_cmp(&r.positive()).unwrap() {
-                        Ordering::Less => Ordering::Greater,
-                        Ordering::Greater => Ordering::Less,
-                        Ordering::Equal => Ordering::Equal,
-                    })
-                }
+                Number::Negative(r) => Some(match l.positive().cmp(&r.positive()) {
+                    Ordering::Less => Ordering::Greater,
+                    Ordering::Greater => Ordering::Less,
+                    Ordering::Equal => Ordering::Equal,
+                }),
             },
         }
     }
@@ -163,7 +161,7 @@ impl<'s> Number<'s> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 struct PositiveNumber<'s> {
     s: &'s str,
     // decimal_index >= 1
@@ -316,19 +314,25 @@ impl Sub for PositiveNumber<'_> {
 
 impl PartialOrd for PositiveNumber<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PositiveNumber<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
         if self.is_inf() {
             return if other.is_inf() {
-                Some(Ordering::Equal)
+                Ordering::Equal
             } else {
-                Some(Ordering::Greater)
+                Ordering::Greater
             };
         } else if other.is_inf() {
-            return Some(Ordering::Less);
+            return Ordering::Less;
         }
 
         match self.left_most_index().partial_cmp(&other.left_most_index()) {
-            Some(Ordering::Less) => return Some(Ordering::Less),
-            Some(Ordering::Greater) => return Some(Ordering::Greater),
+            Some(Ordering::Less) => return Ordering::Less,
+            Some(Ordering::Greater) => return Ordering::Greater,
             _ => {}
         }
 
@@ -339,11 +343,11 @@ impl PartialOrd for PositiveNumber<'_> {
             match lhs_digit.cmp(&rhs_digit) {
                 Ordering::Equal => {}
                 ordering => {
-                    return Some(ordering);
+                    return ordering;
                 }
             }
         }
-        Some(Ordering::Equal)
+        Ordering::Equal
     }
 }
 
