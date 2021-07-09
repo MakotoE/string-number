@@ -1,6 +1,6 @@
 use bigdecimal::BigDecimal;
 use std::cmp::Ordering;
-use std::ops::{Add, Sub};
+use std::ops::{Add, Mul, Sub};
 
 const INFINITY_STR: &str = "inf";
 const NEG_INFINITY_STR: &str = "-inf";
@@ -77,6 +77,12 @@ impl StringNumber {
 
     fn is_zero(&self) -> bool {
         matches!(self.0.as_str(), "0.0" | "-0.0")
+    }
+
+    fn add_zeros(&mut self, zero_count: usize) {
+        for _ in 0..zero_count {
+            self.0.push('0');
+        }
     }
 }
 
@@ -170,7 +176,9 @@ struct PositiveNumber<'s> {
 
 impl<'s> PositiveNumber<'s> {
     fn new(s: &'s str) -> Self {
+        debug_assert!(s != NAN_STR);
         debug_assert!(!s.starts_with('-'));
+
         let decimal_index = s.find('.').unwrap_or(s.len());
         debug_assert!(decimal_index >= 1);
         Self { s, decimal_index }
@@ -258,6 +266,29 @@ impl<'s> PositiveNumber<'s> {
 
     fn number_to_ascii(n: u8) -> u8 {
         n + b'0'
+    }
+
+    /// self must not be infinity. n <= 9.
+    fn mul_by_single_digit(&self, n: u8) -> StringNumber {
+        debug_assert!(!self.is_inf());
+        debug_assert!(n <= 9);
+        let mut result_digits: Vec<u8> = Vec::new();
+
+        let mut carry = 0_u8;
+        for index in self.right_most_index()..=self.left_most_index() {
+            let mut digit = self.get_digit(index) * n + carry;
+            carry = digit / 10;
+            digit -= carry * 10;
+            result_digits.push(digit);
+        }
+
+        let mut decimal_index = self.decimal_index;
+        if carry > 0 {
+            result_digits.push(carry);
+            decimal_index += 1;
+        }
+
+        PositiveNumber::digits_to_string(result_digits, decimal_index)
     }
 }
 
@@ -361,6 +392,16 @@ impl GetDigit for PositiveNumber<'_> {
     }
 }
 
+impl Mul for PositiveNumber<'_> {
+    type Output = StringNumber;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        for rhs_index in rhs.right_most_index()..=rhs.left_most_index() {}
+
+        todo!()
+    }
+}
+
 #[derive(Debug)]
 struct NegativeNumber<'s> {
     s: &'s str,
@@ -402,6 +443,9 @@ trait GetDigit {
 
     fn decimal_index(&self) -> usize;
 
+    /// -1 = 1/10th digit
+    /// 0 = 1s digit
+    /// 1 = 10s digit
     fn get_digit(&self, mut index: isize) -> u8 {
         if index < 0 {
             // Skip past decimal point
@@ -574,6 +618,25 @@ mod tests {
         set_hook(Box::new(|_| {}));
         PositiveNumber::digits_to_string(vec![], 2);
         set_hook(prev_hook);
+    }
+
+    #[rstest]
+    #[case(0.0, 0, 0.0)]
+    #[case(1.0, 0, 0.0)]
+    #[case(0.0, 1, 0.0)]
+    #[case(1.0, 1, 1.0)]
+    #[case(2.0, 1, 2.0)]
+    #[case(1.0, 2, 2.0)]
+    #[case(1.2, 2, 2.4)]
+    #[case(1.2, 2, 2.4)]
+    #[case(12.34, 2, 24.68)]
+    #[case(0.2, 8, 1.6)]
+    #[case(12.34, 4, 49.36)]
+    #[case(12.34, 9, 111.06)]
+    fn mul_by_single_digit(#[case] number: f64, #[case] n: u8, #[case] expected: f64) {
+        let s = number.to_string();
+        let result: f64 = PositiveNumber::new(&s).mul_by_single_digit(n).into();
+        assert_eq!(result, expected);
     }
 
     #[derive(Debug, Clone)]
