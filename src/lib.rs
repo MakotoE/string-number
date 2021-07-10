@@ -32,7 +32,9 @@ impl From<f64> for StringNumber {
 
 impl From<&BigDecimal> for StringNumber {
     fn from(bd: &BigDecimal) -> Self {
-        Self(bd.to_string())
+        let mut s = bd.to_string();
+        StringNumber::fix_zeros(&mut s);
+        Self(s)
     }
 }
 
@@ -93,28 +95,39 @@ impl StringNumber {
                 let start_index = if self.0.starts_with('-') { 1 } else { 0 };
                 self.0.insert(start_index, '0');
                 new_decimal_index += 1;
-                if self.0.ends_with('0') && !self.0.ends_with(".0") {
-                    self.0.pop();
-                }
             }
         } else if new_decimal_index >= self.0.len() as isize {
-            for _ in 0..=self.0.len().saturating_sub(new_decimal_index as usize) {
+            for _ in 0..=new_decimal_index {
                 self.0.push('0');
-                if self.0.starts_with("0") && !self.0.starts_with("0.") {
-                    self.0.remove(0);
-                    new_decimal_index -= 1;
-                }
             }
         }
         self.0
             .insert(new_decimal_index.try_into().unwrap(), DECIMAL);
-        if self.0.ends_with('.') {
-            self.0.push('0');
-        } else if self.0.starts_with("-.") {
-            self.0.insert(1, '0');
-        }
+        StringNumber::fix_zeros(&mut self.0);
 
         self
+    }
+
+    fn fix_zeros(s: &mut String) {
+        if !s.contains('.') {
+            s.push_str(".0");
+        }
+
+        if s.starts_with("-.") {
+            s.insert(1, '0');
+        } else if s.starts_with(".") {
+            s.insert(0, '0');
+        }
+
+        while s.starts_with('0') && !s.starts_with("0.") {
+            s.remove(0);
+        }
+        while s.starts_with("-0") && !s.starts_with("-0.") {
+            s.remove(1);
+        }
+        while s.ends_with("0") && !s.ends_with(".0") {
+            s.pop();
+        }
     }
 }
 
@@ -482,10 +495,9 @@ impl Mul for PositiveNumber<'_> {
 
         let mut result = StringNumber::default();
         for rhs_index in rhs.right_most_index()..=rhs.left_most_index() {
-            let a = self
+            result += self
                 .mul_by_single_digit(rhs.get_digit(rhs_index))
                 .mul_10_power(rhs_index);
-            result += a;
         }
 
         result
@@ -773,6 +785,36 @@ mod tests {
             StringNumber::from(a) * StringNumber::from(b),
             StringNumber::from(expected)
         )
+    }
+
+    #[quickcheck]
+    fn mul_quickcheck(a: NoShrink<BigDecimal>, b: NoShrink<BigDecimal>) -> bool {
+        let a = a.into_inner().into_inner();
+        let b = b.into_inner().into_inner();
+        StringNumber::from(&a) * StringNumber::from(&b) == StringNumber::from(&(a * b))
+    }
+
+    #[test]
+    fn test() {
+        let a: bigdecimal::BigDecimal = "240717193743330442442435868474290794098217090094801571527834547084238237038951035167472316307721679700666087052202940779149754820772981465101860056931459747601995644728075107548596211167881282992888068605663610.80".parse().unwrap();
+        let b: bigdecimal::BigDecimal = "-25117834607554257367674377401836185966677261357539241564949911892835087867454732332644024873903402870488107446555374523103124805883436781170577070014178453906644496358869281206914953297518766011535307971733121577765359036000139137516148567316473937759219233523683130420475110680657202991283319031979806473751800701753027454172712867212398773427904333437103350952533299902752608416140741744387643533446586549211886772553602205582020038917657553909997540800308024146278176975047813853200728227604437511182366563213609997529642303228657297765602580835234097013743000218305344295695241655659248648823481406553351081557724960366071666394265144958671756638618550623276734902365011900986348559859920281839110621722343952988018288800536046166669181818070661263593292609784556761970713630811065524444352283783245488756114373715894819794831028385508667810602447869617288614581296006711987900979704538925587974459849163811088014894589813670690340142004550344617193325138686128603633932097144551498640920519888503347451254555044629311593826456409414328406951754022805958314931755831087042988570398532099992417957340215832544594727865423798268218454213324230365807934988835105250768659206452391733587074519192207548088416269062138502764044538980133433709208013813949425196115392411076606556457706107259206894879208262874075181565223019684822616708522798853992031640899618321016063023959162289058808188343072054145278677142203090172072432814712440803334966591247178821289977858646225322507876771753476968427823615319681734780023219501338699337183021938698725430239607899419120098533977775941966751546801410766509051455274020969137124940578931096512590361846625757482527021913396899273445565645298398643689685151956876150435037699542101878356278800840493902038180869444340598470148152617462030949910283799482748698977130469.7310975821684920507554135762836908977724705064623457618771934558859086199807137097548150274701180155367155001114602142493033280266905689709689493225".parse().unwrap();
+        let result = StringNumber::from(&a) * StringNumber::from(&b);
+        let expected = StringNumber::from(&(a * b));
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case("0", "0.0")]
+    #[case("0.0", "0.0")]
+    #[case("001.0", "1.0")]
+    #[case("-001.0", "-1.0")]
+    #[case("0.100", "0.1")]
+    #[case(".1", "0.1")]
+    #[case("-.1", "-0.1")]
+    fn fix_zeros(#[case] s: &str, #[case] expected: &str) {
+        let mut result = s.to_string();
+        StringNumber::fix_zeros(&mut result);
+        assert_eq!(result, expected);
     }
 
     #[derive(Debug, Clone)]
