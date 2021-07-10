@@ -1,10 +1,12 @@
 use bigdecimal::BigDecimal;
 use std::cmp::Ordering;
+use std::convert::TryInto;
 use std::ops::{Add, Mul, Sub};
 
 const INFINITY_STR: &str = "inf";
 const NEG_INFINITY_STR: &str = "-inf";
 const NAN_STR: &str = "NaN";
+const DECIMAL: char = '.';
 
 #[derive(Debug, Clone, Eq)]
 pub struct StringNumber(String);
@@ -18,7 +20,7 @@ impl Default for StringNumber {
 impl From<f64> for StringNumber {
     fn from(n: f64) -> Self {
         let mut s = n.to_string();
-        if !(s == INFINITY_STR || s == NEG_INFINITY_STR || s == NAN_STR || s.contains('.')) {
+        if !(s == INFINITY_STR || s == NEG_INFINITY_STR || s == NAN_STR || s.contains(DECIMAL)) {
             // Number should end with ".0"
             s.push_str(".0");
         }
@@ -79,10 +81,38 @@ impl StringNumber {
         matches!(self.0.as_str(), "0.0" | "-0.0")
     }
 
-    fn add_zeros(&mut self, zero_count: usize) {
-        for _ in 0..zero_count {
-            self.0.push('0');
+    fn mul_10_power(mut self, power: isize) -> Self {
+        let decimal_index = self.0.find(DECIMAL).unwrap();
+        self.0.remove(decimal_index);
+        let mut new_decimal_index = decimal_index as isize + power;
+        if new_decimal_index <= 0 {
+            // terrible time complexity
+            for _ in new_decimal_index..=0 {
+                let start_index = if self.0.starts_with('-') { 1 } else { 0 };
+                self.0.insert(start_index, '0');
+                new_decimal_index += 1;
+                if self.0.ends_with('0') && !self.0.ends_with(".0") {
+                    self.0.pop();
+                }
+            }
+        } else if new_decimal_index >= self.0.len() as isize {
+            for _ in 0..=self.0.len().saturating_sub(new_decimal_index as usize) {
+                self.0.push('0');
+                if self.0.starts_with("0") && !self.0.starts_with("0.") {
+                    self.0.remove(0);
+                    new_decimal_index -= 1;
+                }
+            }
         }
+        self.0
+            .insert(new_decimal_index.try_into().unwrap(), DECIMAL);
+        if self.0.ends_with('.') {
+            self.0.push('0');
+        } else if self.0.starts_with("-.") {
+            self.0.insert(1, '0');
+        }
+
+        self
     }
 }
 
@@ -179,7 +209,8 @@ impl<'s> PositiveNumber<'s> {
         debug_assert!(s != NAN_STR);
         debug_assert!(!s.starts_with('-'));
 
-        let decimal_index = s.find('.').unwrap_or(s.len());
+        // TODO don't need default value
+        let decimal_index = s.find(DECIMAL).unwrap_or(s.len());
         debug_assert!(decimal_index >= 1);
         Self { s, decimal_index }
     }
@@ -396,7 +427,10 @@ impl Mul for PositiveNumber<'_> {
     type Output = StringNumber;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        for rhs_index in rhs.right_most_index()..=rhs.left_most_index() {}
+        let result = StringNumber::default();
+        for rhs_index in rhs.right_most_index()..=rhs.left_most_index() {
+            self.mul_by_single_digit(rhs.get_digit(rhs_index));
+        }
 
         todo!()
     }
@@ -412,7 +446,7 @@ struct NegativeNumber<'s> {
 impl<'s> NegativeNumber<'s> {
     fn new(s: &'s str) -> Self {
         let stripped = s.strip_prefix('-').unwrap();
-        let decimal_index = stripped.find('.').unwrap_or(stripped.len());
+        let decimal_index = stripped.find(DECIMAL).unwrap_or(stripped.len());
         debug_assert!(decimal_index >= 1);
         Self {
             s: stripped,
@@ -618,6 +652,24 @@ mod tests {
         set_hook(Box::new(|_| {}));
         PositiveNumber::digits_to_string(vec![], 2);
         set_hook(prev_hook);
+    }
+
+    #[rstest]
+    #[case(0.0, 0, 0.0)] // 1
+    #[case(1.0, 0, 1.0)] // 2
+    #[case(0.0, 1, 0.0)] // 3
+    #[case(1.0, 1, 10.0)] // 4
+    #[case(1.0, -1, 0.1)] // 5
+    #[case(0.1, 1, 1.0)] // 6
+    #[case(0.1, -1, 0.01)] // 7
+    #[case(-10.2, 2, -1020.0)] // 8
+    #[case(-1.2, -1, -0.12)] // 9
+    #[case(-1.2, -2, -0.012)] // 10
+    fn mul_10_power(#[case] number: f64, #[case] power: isize, #[case] expected: f64) {
+        assert_eq!(
+            StringNumber::from(number).mul_10_power(power),
+            StringNumber::from(expected)
+        );
     }
 
     #[rstest]
