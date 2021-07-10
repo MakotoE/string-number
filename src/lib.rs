@@ -8,13 +8,14 @@ const INFINITY_STR: &str = "inf";
 const NEG_INFINITY_STR: &str = "-inf";
 const NAN_STR: &str = "NaN";
 const DECIMAL: char = '.';
+const ZERO: &str = "0.0";
 
 #[derive(Debug, Clone, Eq)]
 pub struct StringNumber(String);
 
 impl Default for StringNumber {
     fn default() -> Self {
-        Self("0.0".to_string())
+        Self(ZERO.to_string())
     }
 }
 
@@ -79,7 +80,7 @@ impl StringNumber {
     }
 
     fn is_zero(&self) -> bool {
-        matches!(self.0.as_str(), "0.0" | "-0.0")
+        matches!(self.0.as_str(), ZERO | "-0.0")
     }
 
     fn mul_10_power(mut self, power: isize) -> Self {
@@ -197,12 +198,12 @@ impl Mul for StringNumber {
             Number::Positive(l) => match rhs {
                 Number::NaN => StringNumber::nan(),
                 Number::Positive(r) => l * r,
-                Number::Negative(r) => todo!(),
+                Number::Negative(r) => (l * r.positive()).negate(),
             },
             Number::Negative(l) => match rhs {
                 Number::NaN => StringNumber::nan(),
-                Number::Positive(r) => todo!(),
-                Number::Negative(r) => todo!(),
+                Number::Positive(r) => (l.positive() * r).negate(),
+                Number::Negative(r) => l.positive() * r.positive(),
             },
         }
     }
@@ -247,6 +248,10 @@ impl<'s> PositiveNumber<'s> {
 
     fn is_inf(&self) -> bool {
         self.s == INFINITY_STR
+    }
+
+    fn is_zero(&self) -> bool {
+        self.s == ZERO
     }
 
     fn left_most_index(&self) -> isize {
@@ -461,6 +466,20 @@ impl Mul for PositiveNumber<'_> {
     type Output = StringNumber;
 
     fn mul(self, rhs: Self) -> Self::Output {
+        if self.is_inf() {
+            return if rhs.is_zero() {
+                StringNumber::nan()
+            } else {
+                StringNumber::infinity()
+            };
+        } else if rhs.is_inf() {
+            return if self.is_zero() {
+                StringNumber::nan()
+            } else {
+                StringNumber::infinity()
+            };
+        }
+
         let mut result = StringNumber::default();
         for rhs_index in rhs.right_most_index()..=rhs.left_most_index() {
             let a = self
@@ -740,6 +759,15 @@ mod tests {
     #[case(1.0, 12.0, 12.0)] // 5
     #[case(12.0, 34.0, 408.0)] // 6
     #[case(7.9, 6.8, 53.72)] // 7
+    #[case(1.0, -1.0, -1.0)] // 8
+    #[case(-1.0, 1.0, -1.0)] // 9
+    #[case(-1.0, -1.0, 1.0)] // 10
+    #[case(f64::NAN, 0.0, f64::NAN)] // 11
+    #[case(0.0, f64::NAN, f64::NAN)] // 12
+    #[case(f64::INFINITY, 1.0, f64::INFINITY)] // 13
+    #[case(1.0, f64::INFINITY, f64::INFINITY)] // 14
+    #[case(f64::INFINITY, 0.0, f64::NAN)] // 15
+    #[case(0.0, f64::INFINITY, f64::NAN)] // 16
     fn mul(#[case] a: f64, #[case] b: f64, #[case] expected: f64) {
         assert_eq!(
             StringNumber::from(a) * StringNumber::from(b),
