@@ -1,7 +1,8 @@
 use bigdecimal::BigDecimal;
 use std::cmp::Ordering;
 use std::convert::TryInto;
-use std::ops::{Add, Mul, Sub};
+use std::mem::take;
+use std::ops::{Add, AddAssign, Mul, Sub};
 
 const INFINITY_STR: &str = "inf";
 const NEG_INFINITY_STR: &str = "-inf";
@@ -13,7 +14,7 @@ pub struct StringNumber(String);
 
 impl Default for StringNumber {
     fn default() -> Self {
-        Self("0".to_string())
+        Self("0.0".to_string())
     }
 }
 
@@ -149,6 +150,12 @@ impl Add for StringNumber {
     }
 }
 
+impl AddAssign for StringNumber {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = take(self) + rhs;
+    }
+}
+
 impl PartialOrd for StringNumber {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.is_zero() && other.is_zero() {
@@ -173,6 +180,29 @@ impl PartialOrd for StringNumber {
                     Ordering::Greater => Ordering::Less,
                     Ordering::Equal => Ordering::Equal,
                 }),
+            },
+        }
+    }
+}
+
+impl Mul for StringNumber {
+    type Output = StringNumber;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        let lhs = Number::new(&self.0);
+        let rhs = Number::new(&rhs.0);
+
+        match lhs {
+            Number::NaN => StringNumber::nan(),
+            Number::Positive(l) => match rhs {
+                Number::NaN => StringNumber::nan(),
+                Number::Positive(r) => l * r,
+                Number::Negative(r) => todo!(),
+            },
+            Number::Negative(l) => match rhs {
+                Number::NaN => StringNumber::nan(),
+                Number::Positive(r) => todo!(),
+                Number::Negative(r) => todo!(),
             },
         }
     }
@@ -319,7 +349,11 @@ impl<'s> PositiveNumber<'s> {
             decimal_index += 1;
         }
 
-        PositiveNumber::digits_to_string(result_digits, decimal_index)
+        if result_digits.iter().all(|&n| n == 0) {
+            StringNumber::default()
+        } else {
+            PositiveNumber::digits_to_string(result_digits, decimal_index)
+        }
     }
 }
 
@@ -427,12 +461,15 @@ impl Mul for PositiveNumber<'_> {
     type Output = StringNumber;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        let result = StringNumber::default();
+        let mut result = StringNumber::default();
         for rhs_index in rhs.right_most_index()..=rhs.left_most_index() {
-            self.mul_by_single_digit(rhs.get_digit(rhs_index));
+            let a = self
+                .mul_by_single_digit(rhs.get_digit(rhs_index))
+                .mul_10_power(rhs_index);
+            result += a;
         }
 
-        todo!()
+        result
     }
 }
 
@@ -685,10 +722,29 @@ mod tests {
     #[case(0.2, 8, 1.6)]
     #[case(12.34, 4, 49.36)]
     #[case(12.34, 9, 111.06)]
+    #[case(12.34, 0, 0.0)]
     fn mul_by_single_digit(#[case] number: f64, #[case] n: u8, #[case] expected: f64) {
         let s = number.to_string();
-        let result: f64 = PositiveNumber::new(&s).mul_by_single_digit(n).into();
-        assert_eq!(result, expected);
+        assert_eq!(
+            PositiveNumber::new(&s).mul_by_single_digit(n),
+            StringNumber::from(expected)
+        );
+    }
+
+    #[rstest]
+    #[case(0.0, 0.0, 0.0)] // 0
+    #[case(0.0, 1.0, 0.0)] // 1
+    #[case(1.0, 0.0, 0.0)] // 2
+    #[case(1.0, 1.0, 1.0)] // 3
+    #[case(12.0, 1.0, 12.0)] // 4
+    #[case(1.0, 12.0, 12.0)] // 5
+    #[case(12.0, 34.0, 408.0)] // 6
+    #[case(7.9, 6.8, 53.72)] // 7
+    fn mul(#[case] a: f64, #[case] b: f64, #[case] expected: f64) {
+        assert_eq!(
+            StringNumber::from(a) * StringNumber::from(b),
+            StringNumber::from(expected)
+        )
     }
 
     #[derive(Debug, Clone)]
