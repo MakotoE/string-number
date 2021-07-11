@@ -2,7 +2,7 @@ use bigdecimal::BigDecimal;
 use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::mem::take;
-use std::ops::{Add, AddAssign, Mul, Sub};
+use std::ops::{Add, AddAssign, Mul, MulAssign, Sub};
 
 const INFINITY_STR: &str = "inf";
 const NEG_INFINITY_STR: &str = "-inf";
@@ -222,6 +222,12 @@ impl Mul for StringNumber {
                 Number::Negative(r) => l.positive() * r.positive(),
             },
         }
+    }
+}
+
+impl MulAssign for StringNumber {
+    fn mul_assign(&mut self, rhs: Self) {
+        *self = take(self) * rhs;
     }
 }
 
