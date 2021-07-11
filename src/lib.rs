@@ -134,6 +134,35 @@ impl StringNumber {
     }
 }
 
+impl PartialOrd for StringNumber {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.is_zero() && other.is_zero() {
+            return Some(Ordering::Equal);
+        }
+
+        let lhs = Number::new(&self.0);
+        let rhs = Number::new(&other.0);
+
+        match lhs {
+            Number::NaN => None,
+            Number::Positive(l) => match rhs {
+                Number::NaN => None,
+                Number::Positive(r) => Some(l.cmp(&r)),
+                Number::Negative(_) => Some(Ordering::Greater),
+            },
+            Number::Negative(l) => match rhs {
+                Number::NaN => None,
+                Number::Positive(_) => Some(Ordering::Less),
+                Number::Negative(r) => Some(match l.positive().cmp(&r.positive()) {
+                    Ordering::Less => Ordering::Greater,
+                    Ordering::Greater => Ordering::Less,
+                    Ordering::Equal => Ordering::Equal,
+                }),
+            },
+        }
+    }
+}
+
 impl PartialEq for StringNumber {
     fn eq(&self, other: &Self) -> bool {
         if self.is_zero() && other.is_zero() {
@@ -170,35 +199,6 @@ impl Add for StringNumber {
 impl AddAssign for StringNumber {
     fn add_assign(&mut self, rhs: Self) {
         *self = take(self) + rhs;
-    }
-}
-
-impl PartialOrd for StringNumber {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.is_zero() && other.is_zero() {
-            return Some(Ordering::Equal);
-        }
-
-        let lhs = Number::new(&self.0);
-        let rhs = Number::new(&other.0);
-
-        match lhs {
-            Number::NaN => None,
-            Number::Positive(l) => match rhs {
-                Number::NaN => None,
-                Number::Positive(r) => Some(l.cmp(&r)),
-                Number::Negative(_) => Some(Ordering::Greater),
-            },
-            Number::Negative(l) => match rhs {
-                Number::NaN => None,
-                Number::Positive(_) => Some(Ordering::Less),
-                Number::Negative(r) => Some(match l.positive().cmp(&r.positive()) {
-                    Ordering::Less => Ordering::Greater,
-                    Ordering::Greater => Ordering::Less,
-                    Ordering::Equal => Ordering::Equal,
-                }),
-            },
-        }
     }
 }
 
