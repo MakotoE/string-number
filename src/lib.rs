@@ -2,7 +2,7 @@ use bigdecimal::BigDecimal;
 use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::mem::take;
-use std::ops::{Add, AddAssign, Mul, MulAssign, Sub};
+use std::ops::{Add, AddAssign, Mul, MulAssign, Sub, SubAssign};
 
 const INFINITY_STR: &str = "inf";
 const NEG_INFINITY_STR: &str = "-inf";
@@ -198,6 +198,35 @@ impl Add for StringNumber {
 
 impl AddAssign for StringNumber {
     fn add_assign(&mut self, rhs: Self) {
+        *self = take(self) + rhs;
+    }
+}
+
+impl Sub for StringNumber {
+    type Output = StringNumber;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        let l = Number::new(&self.0);
+        let r = Number::new(&rhs.0);
+
+        match l {
+            Number::NaN => StringNumber::nan(),
+            Number::Positive(l) => match r {
+                Number::NaN => StringNumber::nan(),
+                Number::Positive(r) => l - r,
+                Number::Negative(r) => l + r.positive(),
+            },
+            Number::Negative(l) => match r {
+                Number::NaN => StringNumber::nan(),
+                Number::Positive(r) => (l.positive() + r).negate(),
+                Number::Negative(r) => r.positive() - l.positive(),
+            },
+        }
+    }
+}
+
+impl SubAssign for StringNumber {
+    fn sub_assign(&mut self, rhs: Self) {
         *self = take(self) + rhs;
     }
 }
@@ -619,6 +648,37 @@ mod tests {
     }
 
     #[rstest]
+    #[case(0.0, 0.0, Some(Ordering::Equal))] // 1
+    #[case(0.0, -0.0, Some(Ordering::Equal))] // 2
+    #[case(1.0, 0.0, Some(Ordering::Greater))] // 3
+    #[case(0.0, 1.0, Some(Ordering::Less))] // 4
+    #[case(0.0, -1.0, Some(Ordering::Greater))] // 5
+    #[case(-1.0, 0.0, Some(Ordering::Less))] // 6
+    #[case(-1.0, 1.0, Some(Ordering::Less))] // 7
+    #[case(1.0, -1.0, Some(Ordering::Greater))] // 8
+    #[case(-1.0, -1.0, Some(Ordering::Equal))] // 9
+    #[case(-1.0, -2.0, Some(Ordering::Greater))] // 10
+    #[case(120.0, 21.0, Some(Ordering::Greater))] // 11
+    #[case(-120.0, -21.0, Some(Ordering::Less))] // 12
+    #[case(0.1, 0.2, Some(Ordering::Less))] // 13
+    #[case(0.2, 0.1, Some(Ordering::Greater))] // 14
+    #[case(f64::NAN, f64::NAN, None)] // 15
+    #[case(f64::INFINITY, 0.0, Some(Ordering::Greater))] // 16
+    #[case(1000.0, f64::INFINITY, Some(Ordering::Less))] // 17
+    #[case(f64::NEG_INFINITY, 0.0, Some(Ordering::Less))] // 18
+    #[case(f64::NEG_INFINITY, f64::INFINITY, Some(Ordering::Less))] // 19
+    fn partial_cmp(#[case] a: f64, #[case] b: f64, #[case] expected: Option<Ordering>) {
+        assert_eq!(StringNumber::from(a).partial_cmp(&b.into()), expected);
+    }
+
+    #[quickcheck]
+    fn partial_cmp_quickcheck(a: NoShrink<f64>, b: NoShrink<f64>) -> bool {
+        let a = a.into_inner();
+        let b = b.into_inner();
+        StringNumber::from(a).partial_cmp(&b.into()) == a.partial_cmp(&b)
+    }
+
+    #[rstest]
     #[case(0.0, 0.0, 0.0)] // 1
     #[case(1.0, 0.0, 1.0)] // 2
     #[case(0.0, 1.0, 1.0)] // 3
@@ -658,34 +718,30 @@ mod tests {
     }
 
     #[rstest]
-    #[case(0.0, 0.0, Some(Ordering::Equal))] // 1
-    #[case(0.0, -0.0, Some(Ordering::Equal))] // 2
-    #[case(1.0, 0.0, Some(Ordering::Greater))] // 3
-    #[case(0.0, 1.0, Some(Ordering::Less))] // 4
-    #[case(0.0, -1.0, Some(Ordering::Greater))] // 5
-    #[case(-1.0, 0.0, Some(Ordering::Less))] // 6
-    #[case(-1.0, 1.0, Some(Ordering::Less))] // 7
-    #[case(1.0, -1.0, Some(Ordering::Greater))] // 8
-    #[case(-1.0, -1.0, Some(Ordering::Equal))] // 9
-    #[case(-1.0, -2.0, Some(Ordering::Greater))] // 10
-    #[case(120.0, 21.0, Some(Ordering::Greater))] // 11
-    #[case(-120.0, -21.0, Some(Ordering::Less))] // 12
-    #[case(0.1, 0.2, Some(Ordering::Less))] // 13
-    #[case(0.2, 0.1, Some(Ordering::Greater))] // 14
-    #[case(f64::NAN, f64::NAN, None)] // 15
-    #[case(f64::INFINITY, 0.0, Some(Ordering::Greater))] // 16
-    #[case(1000.0, f64::INFINITY, Some(Ordering::Less))] // 17
-    #[case(f64::NEG_INFINITY, 0.0, Some(Ordering::Less))] // 18
-    #[case(f64::NEG_INFINITY, f64::INFINITY, Some(Ordering::Less))] // 19
-    fn partial_cmp(#[case] a: f64, #[case] b: f64, #[case] expected: Option<Ordering>) {
-        assert_eq!(StringNumber::from(a).partial_cmp(&b.into()), expected);
+    #[case(0.0, 0.0, 0.0)] // 1
+    #[case(1.0, 0.0, 1.0)] // 2
+    #[case(0.0, 1.0, -1.0)] // 3
+    #[case(-1.0, 0.0, -1.0)] // 4
+    #[case(0.0, -1.0, 1.0)] // 5
+    #[case(1.0, 1.0, 0.0)] // 6
+    #[case(1.0, -1.0, 2.0)] // 7
+    #[case(-1.0, 1.0, -2.0)] // 8
+    #[case(f64::NAN, 0.0, f64::NAN)] // 9
+    #[case(f64::INFINITY, 1.0, f64::INFINITY)] // 10
+    #[case(f64::NEG_INFINITY, 1.0, f64::NEG_INFINITY)] // 11
+    #[case(f64::INFINITY, f64::INFINITY, f64::NAN)] // 12
+    fn sub(#[case] a: f64, #[case] b: f64, #[case] expected: f64) {
+        assert_eq!(
+            StringNumber::from(a) - StringNumber::from(b),
+            StringNumber::from(expected)
+        );
     }
 
     #[quickcheck]
-    fn partial_cmp_quickcheck(a: NoShrink<f64>, b: NoShrink<f64>) -> bool {
-        let a = a.into_inner();
-        let b = b.into_inner();
-        StringNumber::from(a).partial_cmp(&b.into()) == a.partial_cmp(&b)
+    fn sub_quickcheck(a: NoShrink<BigDecimal>, b: NoShrink<BigDecimal>) -> bool {
+        let a = a.into_inner().into_inner();
+        let b = b.into_inner().into_inner();
+        StringNumber::from(&a) - StringNumber::from(&b) == StringNumber::from(&(a - b))
     }
 
     #[rstest]
