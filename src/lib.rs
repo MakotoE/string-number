@@ -2,7 +2,7 @@ use bigdecimal::BigDecimal;
 use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::mem::take;
-use std::ops::{Add, AddAssign, Mul, MulAssign, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Div, Mul, MulAssign, Sub, SubAssign};
 
 const INFINITY_STR: &str = "inf";
 const NEG_INFINITY_STR: &str = "-inf";
@@ -257,6 +257,29 @@ impl Mul for StringNumber {
 impl MulAssign for StringNumber {
     fn mul_assign(&mut self, rhs: Self) {
         *self = take(self) * rhs;
+    }
+}
+
+impl Div for StringNumber {
+    type Output = StringNumber;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        let lhs = Number::new(&self.0);
+        let rhs = Number::new(&rhs.0);
+
+        match lhs {
+            Number::NaN => StringNumber::nan(),
+            Number::Positive(l) => match rhs {
+                Number::NaN => StringNumber::nan(),
+                Number::Positive(r) => l / r,
+                Number::Negative(r) => (l / r.positive()).negate(),
+            },
+            Number::Negative(l) => match rhs {
+                Number::NaN => StringNumber::nan(),
+                Number::Positive(r) => (l.positive() / r).negate(),
+                Number::Negative(r) => l.positive() / r.positive(),
+            },
+        }
     }
 }
 
@@ -545,6 +568,36 @@ impl Mul for PositiveNumber<'_> {
     }
 }
 
+impl Div for PositiveNumber<'_> {
+    type Output = StringNumber;
+
+    /// Adopted from https://github.com/phishman3579/java-algorithms-implementation
+    fn div(self, rhs: Self) -> Self::Output {
+        assert!(rhs > PositiveNumber::new(ZERO));
+
+        let mut abs_a: i64 = f64::from(StringNumber(self.s.to_string())) as i64;
+        let abs_b: i64 = f64::from(StringNumber(rhs.s.to_string())) as i64;
+        let mut temp_a = 0_i64;
+        let mut temp_b = 0_i64;
+        let mut counter = 0_i64;
+
+        let mut result = 0_i64;
+        while abs_a >= abs_b {
+            temp_a = abs_a >> 1;
+            temp_b = abs_b;
+            counter = 1;
+            while temp_a >= temp_b {
+                temp_b <<= 1;
+                counter <<= 1;
+            }
+            abs_a -= temp_b;
+            result += counter;
+        }
+
+        (result as f64).into()
+    }
+}
+
 #[derive(Debug)]
 struct NegativeNumber<'s> {
     s: &'s str,
@@ -621,7 +674,15 @@ mod tests {
     use quickcheck_macros::quickcheck;
     use rstest::rstest;
     use std::ops::Deref;
-    use std::panic::{set_hook, take_hook};
+    use std::panic::{catch_unwind, set_hook, take_hook, UnwindSafe};
+
+    fn catch_unwind_silent<F: FnOnce() -> R + UnwindSafe, R>(f: F) -> std::thread::Result<R> {
+        let prev_hook = take_hook();
+        set_hook(Box::new(|_| {}));
+        let result = catch_unwind(f);
+        set_hook(prev_hook);
+        result
+    }
 
     #[rstest]
     #[case(0.0, 0, 0)]
@@ -782,12 +843,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn digits_to_string_panic() {
-        let prev_hook = take_hook();
-        set_hook(Box::new(|_| {}));
-        PositiveNumber::digits_to_string(vec![], 2);
-        set_hook(prev_hook);
+        assert!(catch_unwind_silent(|| PositiveNumber::digits_to_string(vec![], 2)).is_err());
     }
 
     #[rstest]
@@ -874,6 +931,24 @@ mod tests {
         let mut result = s.to_string();
         StringNumber::fix_zeros(&mut result);
         assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case(0.0, 1.0, 0.0)] // 1
+    #[case(1.0, 1.0, 1.0)] // 2
+    #[case(2.0, 1.0, 2.0)] // 3
+    #[case(3.0, 2.0, 1.0)] // 4
+    #[case(2.0, 3.0, 0.0)] // 5
+    fn div(#[case] a: f64, #[case] b: f64, #[case] expected: f64) {
+        assert_eq!(
+            StringNumber::from(a) / StringNumber::from(b),
+            StringNumber::from(expected)
+        )
+    }
+
+    #[test]
+    fn div_by_zero() {
+        assert!(catch_unwind_silent(|| StringNumber::from(0.0) / StringNumber::from(0.0)).is_err());
     }
 
     #[derive(Debug, Clone)]
