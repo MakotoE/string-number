@@ -23,7 +23,7 @@ impl From<f64> for StringNumber {
     fn from(n: f64) -> Self {
         let mut s = n.to_string();
         if !(s == INFINITY_STR || s == NEG_INFINITY_STR || s == NAN_STR || s.contains(DECIMAL)) {
-            // Number should end with ".0"
+            // Number string should end with ".0"
             s.push_str(".0");
         }
         Self(s)
@@ -314,9 +314,11 @@ impl<'s> PositiveNumber<'s> {
         debug_assert!(s != NAN_STR);
         debug_assert!(!s.starts_with('-'));
 
-        // TODO don't need default value
-        let decimal_index = s.find(DECIMAL).unwrap_or(s.len());
-        debug_assert!(decimal_index >= 1);
+        let decimal_index = if s == INFINITY_STR {
+            0
+        } else {
+            s.find(DECIMAL).unwrap()
+        };
         Self { s, decimal_index }
     }
 
@@ -607,9 +609,15 @@ struct NegativeNumber<'s> {
 
 impl<'s> NegativeNumber<'s> {
     fn new(s: &'s str) -> Self {
+        debug_assert!(s != NAN_STR);
+
         let stripped = s.strip_prefix('-').unwrap();
-        let decimal_index = stripped.find(DECIMAL).unwrap_or(stripped.len());
-        debug_assert!(decimal_index >= 1);
+        let decimal_index = if s == NEG_INFINITY_STR {
+            0
+        } else {
+            stripped.find(DECIMAL).unwrap()
+        };
+
         Self {
             s: stripped,
             decimal_index,
@@ -806,8 +814,8 @@ mod tests {
     }
 
     #[rstest]
-    #[case(0.0, 0, 0)]
-    #[case(1.0, 0, 0)]
+    #[case(0.0, 0, -1)]
+    #[case(1.0, 0, -1)]
     #[case(1.2, 0, -1)]
     #[case(12.34, 1, -2)]
     fn left_most_index_right_most_index(
@@ -815,8 +823,8 @@ mod tests {
         #[case] expected_left_most_index: isize,
         #[case] expected_right_most_index: isize,
     ) {
-        let s = f.to_string();
-        let number = PositiveNumber::new(&s);
+        let sn = StringNumber::from(f);
+        let number = PositiveNumber::new(&sn.0);
         assert_eq!(number.left_most_index(), expected_left_most_index);
         assert_eq!(number.right_most_index(), expected_right_most_index);
     }
@@ -880,9 +888,9 @@ mod tests {
     #[case(12.34, 9, 111.06)]
     #[case(12.34, 0, 0.0)]
     fn mul_by_single_digit(#[case] number: f64, #[case] n: u8, #[case] expected: f64) {
-        let s = number.to_string();
+        let sn = StringNumber::from(number);
         assert_eq!(
-            PositiveNumber::new(&s).mul_by_single_digit(n),
+            PositiveNumber::new(&sn.0).mul_by_single_digit(n),
             StringNumber::from(expected)
         );
     }
