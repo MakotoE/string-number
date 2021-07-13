@@ -1,4 +1,5 @@
 use bigdecimal::BigDecimal;
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::mem::take;
@@ -45,6 +46,27 @@ impl From<StringNumber> for f64 {
     }
 }
 
+impl From<PositiveNumber<'_>> for StringNumber {
+    fn from(p: PositiveNumber<'_>) -> Self {
+        StringNumber(p.s.to_string())
+    }
+}
+
+impl From<PositiveOrNaN<'_>> for StringNumber {
+    fn from(positive_or_nan: PositiveOrNaN<'_>) -> Self {
+        match positive_or_nan {
+            PositiveOrNaN::Positive(p) => p.into(),
+            PositiveOrNaN::NaN => StringNumber::nan(),
+        }
+    }
+}
+
+impl From<NegativeNumber<'_>> for StringNumber {
+    fn from(p: NegativeNumber<'_>) -> Self {
+        StringNumber("-".to_string() + &p.s)
+    }
+}
+
 impl StringNumber {
     pub fn nan() -> Self {
         StringNumber(NAN_STR.to_string())
@@ -70,42 +92,8 @@ impl StringNumber {
         self.0 == NEG_INFINITY_STR
     }
 
-    pub fn negate(mut self) -> Self {
-        if !self.is_nan() {
-            if self.0.starts_with('-') {
-                self.0.remove(0);
-            } else {
-                self.0.insert(0, '-');
-            }
-        }
-        self
-    }
-
     fn is_zero(&self) -> bool {
         matches!(self.0.as_str(), ZERO | "-0.0")
-    }
-
-    fn mul_10_power(mut self, power: isize) -> Self {
-        let decimal_index = self.0.find(DECIMAL).unwrap();
-        self.0.remove(decimal_index);
-        let mut new_decimal_index = decimal_index as isize + power;
-        if new_decimal_index <= 0 {
-            // terrible time complexity
-            for _ in new_decimal_index..=0 {
-                let start_index = if self.0.starts_with('-') { 1 } else { 0 };
-                self.0.insert(start_index, '0');
-                new_decimal_index += 1;
-            }
-        } else if new_decimal_index >= self.0.len() as isize {
-            for _ in 0..=new_decimal_index {
-                self.0.push('0');
-            }
-        }
-        self.0
-            .insert(new_decimal_index.try_into().unwrap(), DECIMAL);
-        StringNumber::fix_zeros(&mut self.0);
-
-        self
     }
 
     fn fix_zeros(s: &mut String) {
@@ -118,7 +106,7 @@ impl StringNumber {
 
         if s.starts_with("-.") {
             s.insert(1, '0');
-        } else if s.starts_with(".") {
+        } else if s.starts_with('.') {
             s.insert(0, '0');
         }
 
@@ -128,7 +116,7 @@ impl StringNumber {
         while s.starts_with("-0") && !s.starts_with("-0.") {
             s.remove(1);
         }
-        while s.ends_with("0") && !s.ends_with(".0") {
+        while s.ends_with('0') && !s.ends_with(".0") {
             s.pop();
         }
     }
@@ -184,13 +172,13 @@ impl Add for StringNumber {
             Number::NaN => StringNumber::nan(),
             Number::Positive(l) => match r {
                 Number::NaN => StringNumber::nan(),
-                Number::Positive(r) => l + r,
-                Number::Negative(r) => l - r.positive(),
+                Number::Positive(r) => (l + r).into(),
+                Number::Negative(r) => (l - r.positive()),
             },
             Number::Negative(l) => match r {
                 Number::NaN => StringNumber::nan(),
-                Number::Positive(r) => r - l.positive(),
-                Number::Negative(r) => (l.positive() + r.positive()).negate(),
+                Number::Positive(r) => (r - l.positive()),
+                Number::Negative(r) => (l.positive() + r.positive()).negative().into(),
             },
         }
     }
@@ -213,12 +201,12 @@ impl Sub for StringNumber {
             Number::NaN => StringNumber::nan(),
             Number::Positive(l) => match r {
                 Number::NaN => StringNumber::nan(),
-                Number::Positive(r) => l - r,
-                Number::Negative(r) => l + r.positive(),
+                Number::Positive(r) => (l - r),
+                Number::Negative(r) => (l + r.positive()).into(),
             },
             Number::Negative(l) => match r {
                 Number::NaN => StringNumber::nan(),
-                Number::Positive(r) => (l.positive() + r).negate(),
+                Number::Positive(r) => (l.positive() + r).negative().into(),
                 Number::Negative(r) => r.positive() - l.positive(),
             },
         }
@@ -227,7 +215,7 @@ impl Sub for StringNumber {
 
 impl SubAssign for StringNumber {
     fn sub_assign(&mut self, rhs: Self) {
-        *self = take(self) + rhs;
+        *self = take(self) - rhs;
     }
 }
 
@@ -242,13 +230,13 @@ impl Mul for StringNumber {
             Number::NaN => StringNumber::nan(),
             Number::Positive(l) => match rhs {
                 Number::NaN => StringNumber::nan(),
-                Number::Positive(r) => l * r,
-                Number::Negative(r) => (l * r.positive()).negate(),
+                Number::Positive(r) => (l * r).into(),
+                Number::Negative(r) => (l * r.positive()).negative_if_positive(),
             },
             Number::Negative(l) => match rhs {
                 Number::NaN => StringNumber::nan(),
-                Number::Positive(r) => (l.positive() * r).negate(),
-                Number::Negative(r) => l.positive() * r.positive(),
+                Number::Positive(r) => (l.positive() * r).negative_if_positive(),
+                Number::Negative(r) => (l.positive() * r.positive()).into(),
             },
         }
     }
@@ -271,13 +259,13 @@ impl Div for StringNumber {
             Number::NaN => StringNumber::nan(),
             Number::Positive(l) => match rhs {
                 Number::NaN => StringNumber::nan(),
-                Number::Positive(r) => l / r,
-                Number::Negative(r) => (l / r.positive()).negate(),
+                Number::Positive(r) => (l / r).into(),
+                Number::Negative(r) => (l / r.positive()).negative().into(),
             },
             Number::Negative(l) => match rhs {
                 Number::NaN => StringNumber::nan(),
-                Number::Positive(r) => (l.positive() / r).negate(),
-                Number::Negative(r) => l.positive() / r.positive(),
+                Number::Positive(r) => (l.positive() / r).negative().into(),
+                Number::Negative(r) => (l.positive() / r.positive()).into(),
             },
         }
     }
@@ -304,22 +292,18 @@ impl<'s> Number<'s> {
 
 #[derive(Debug, PartialEq, Eq)]
 struct PositiveNumber<'s> {
-    s: &'s str,
+    s: Cow<'s, str>,
     // decimal_index >= 1
     decimal_index: usize,
 }
 
 impl<'s> PositiveNumber<'s> {
     fn new(s: &'s str) -> Self {
-        debug_assert!(s != NAN_STR);
-        debug_assert!(!s.starts_with('-'));
+        Cow::from(s).into()
+    }
 
-        let decimal_index = if s == INFINITY_STR {
-            0
-        } else {
-            s.find(DECIMAL).unwrap()
-        };
-        Self { s, decimal_index }
+    fn infinity() -> PositiveNumber<'s> {
+        PositiveNumber::new(INFINITY_STR)
     }
 
     fn is_inf(&self) -> bool {
@@ -338,18 +322,23 @@ impl<'s> PositiveNumber<'s> {
         -(((self.s.len() - self.decimal_index).saturating_sub(1)) as isize)
     }
 
+    fn negative(self) -> NegativeNumber<'s> {
+        NegativeNumber {
+            s: self.s,
+            decimal_index: self.decimal_index,
+        }
+    }
+
     /// greater >= smaller
-    fn subtract_ordered(greater: Self, less: Self) -> StringNumber {
+    fn subtract_ordered(greater: Self, less: Self) -> PositiveOrNaN<'s> {
         debug_assert!(greater >= less);
 
         if greater.is_inf() {
             return if less.is_inf() {
-                StringNumber::nan()
+                PositiveOrNaN::NaN
             } else {
-                StringNumber::infinity()
+                PositiveNumber::infinity().into()
             };
-        } else if less.is_inf() {
-            return StringNumber::neg_infinity();
         }
 
         let mut result_digits: Vec<u8> = Vec::new();
@@ -372,13 +361,14 @@ impl<'s> PositiveNumber<'s> {
             result_digits.push(digit_difference as u8);
         }
 
-        PositiveNumber::digits_to_string(
+        PositiveNumber::from(Cow::from(PositiveNumber::digits_to_string(
             result_digits,
             usize::max(greater.decimal_index, less.decimal_index),
-        )
+        )))
+        .into()
     }
 
-    fn digits_to_string(mut digits: Vec<u8>, mut decimal_index: usize) -> StringNumber {
+    fn digits_to_string(mut digits: Vec<u8>, mut decimal_index: usize) -> String {
         if digits.is_empty() {
             digits.push(0);
         }
@@ -403,7 +393,7 @@ impl<'s> PositiveNumber<'s> {
             bytes.push(b'0');
         }
 
-        StringNumber(String::from_utf8(bytes).unwrap())
+        String::from_utf8(bytes).unwrap()
     }
 
     fn number_to_ascii(n: u8) -> u8 {
@@ -411,7 +401,7 @@ impl<'s> PositiveNumber<'s> {
     }
 
     /// self must not be infinity. n <= 9.
-    fn mul_by_single_digit(&self, n: u8) -> StringNumber {
+    fn mul_by_single_digit(&self, n: u8) -> PositiveNumber<'s> {
         debug_assert!(!self.is_inf());
         debug_assert!(n <= 9);
         let mut result_digits: Vec<u8> = Vec::new();
@@ -431,19 +421,75 @@ impl<'s> PositiveNumber<'s> {
         }
 
         if result_digits.iter().all(|&n| n == 0) {
-            StringNumber::default()
+            PositiveNumber::default()
         } else {
-            PositiveNumber::digits_to_string(result_digits, decimal_index)
+            Cow::from(PositiveNumber::digits_to_string(
+                result_digits,
+                decimal_index,
+            ))
+            .into()
         }
+    }
+
+    fn mul_10_power(mut self, power: isize) -> PositiveNumber<'s> {
+        let mut s = self.s.to_string();
+
+        let decimal_index = s.find(DECIMAL).unwrap();
+        s.remove(decimal_index);
+        let mut new_decimal_index = decimal_index as isize + power;
+        if new_decimal_index <= 0 {
+            // terrible time complexity
+            #[allow(clippy::mut_range_bound)]
+            for _ in new_decimal_index..=0 {
+                s.insert(0, '0');
+                new_decimal_index += 1;
+            }
+        } else if new_decimal_index >= s.len() as isize {
+            for _ in 0..=new_decimal_index {
+                s.push('0');
+            }
+        }
+        s.insert(new_decimal_index.try_into().unwrap(), DECIMAL);
+        StringNumber::fix_zeros(&mut s);
+
+        self = Cow::from(s).into();
+        self
     }
 }
 
-impl Add for PositiveNumber<'_> {
-    type Output = StringNumber;
+impl Default for PositiveNumber<'_> {
+    fn default() -> Self {
+        Cow::from(ZERO).into()
+    }
+}
 
-    fn add(self, rhs: Self) -> StringNumber {
+impl<'s> From<Cow<'s, str>> for PositiveNumber<'s> {
+    fn from(s: Cow<'s, str>) -> Self {
+        debug_assert!(s != NAN_STR);
+        debug_assert!(!s.starts_with('-'));
+
+        let decimal_index = if s == INFINITY_STR {
+            0
+        } else {
+            s.find(DECIMAL).unwrap()
+        };
+        Self { s, decimal_index }
+    }
+}
+
+#[cfg(test)]
+impl From<f64> for PositiveNumber<'_> {
+    fn from(f: f64) -> Self {
+        Cow::from(StringNumber::from(f).0).into()
+    }
+}
+
+impl<'s> Add for PositiveNumber<'s> {
+    type Output = PositiveNumber<'s>;
+
+    fn add(self, rhs: Self) -> PositiveNumber<'s> {
         if self.is_inf() || rhs.is_inf() {
-            return StringNumber::infinity();
+            return PositiveNumber::infinity();
         }
 
         let mut result_digits: Vec<u8> = Vec::new();
@@ -470,21 +516,28 @@ impl Add for PositiveNumber<'_> {
             result_digits.push(carry);
         }
 
-        PositiveNumber::digits_to_string(
+        Cow::from(PositiveNumber::digits_to_string(
             result_digits,
             usize::max(self.decimal_index, rhs.decimal_index) + carry as usize,
-        )
+        ))
+        .into()
     }
 }
 
-impl Sub for PositiveNumber<'_> {
+impl AddAssign for PositiveNumber<'_> {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = take(self) + rhs;
+    }
+}
+
+impl<'s> Sub for PositiveNumber<'s> {
     type Output = StringNumber;
 
     fn sub(self, rhs: Self) -> Self::Output {
         if self > rhs {
-            PositiveNumber::subtract_ordered(self, rhs)
+            PositiveNumber::subtract_ordered(self, rhs).into()
         } else {
-            PositiveNumber::subtract_ordered(rhs, self).negate()
+            PositiveNumber::subtract_ordered(rhs, self).negative_if_positive()
         }
     }
 }
@@ -530,7 +583,7 @@ impl Ord for PositiveNumber<'_> {
 
 impl GetDigit for PositiveNumber<'_> {
     fn str(&self) -> &str {
-        self.s
+        &self.s
     }
 
     fn decimal_index(&self) -> usize {
@@ -538,44 +591,46 @@ impl GetDigit for PositiveNumber<'_> {
     }
 }
 
-impl Mul for PositiveNumber<'_> {
-    type Output = StringNumber;
+impl<'s> Mul for PositiveNumber<'s> {
+    type Output = PositiveOrNaN<'s>;
 
     fn mul(self, rhs: Self) -> Self::Output {
         if self.is_inf() {
             return if rhs.is_zero() {
-                StringNumber::nan()
+                PositiveOrNaN::NaN
             } else {
-                StringNumber::infinity()
+                PositiveNumber::infinity().into()
             };
         } else if rhs.is_inf() {
             return if self.is_zero() {
-                StringNumber::nan()
+                PositiveOrNaN::NaN
             } else {
-                StringNumber::infinity()
+                PositiveNumber::infinity().into()
             };
         }
 
-        let mut result = StringNumber::default();
+        let mut result = PositiveNumber::default();
         for rhs_index in rhs.right_most_index()..=rhs.left_most_index() {
             result += self
                 .mul_by_single_digit(rhs.get_digit(rhs_index))
                 .mul_10_power(rhs_index);
         }
 
-        if result.0.ends_with("0") && !result.0.ends_with(".0") {
-            result.0.pop();
+        if result.s.ends_with('0') && !result.s.ends_with(".0") {
+            let mut s = result.s.to_string();
+            s.pop();
+            result.s = s.into();
         }
-        result
+        result.into()
     }
 }
 
-impl Div for PositiveNumber<'_> {
-    type Output = StringNumber;
+impl<'s> Div for PositiveNumber<'s> {
+    type Output = PositiveNumber<'s>;
 
     /// Adopted from https://github.com/phishman3579/java-algorithms-implementation
     fn div(self, rhs: Self) -> Self::Output {
-        assert!(rhs > PositiveNumber::new(ZERO));
+        assert_ne!(rhs.s, ZERO);
 
         let mut abs_a: i64 = f64::from(StringNumber(self.s.to_string())) as i64;
         let abs_b: i64 = f64::from(StringNumber(rhs.s.to_string())) as i64;
@@ -596,13 +651,34 @@ impl Div for PositiveNumber<'_> {
             result += counter;
         }
 
-        (result as f64).into()
+        Cow::from((result as f64).to_string()).into()
+    }
+}
+
+#[derive(Debug)]
+enum PositiveOrNaN<'s> {
+    Positive(PositiveNumber<'s>),
+    NaN,
+}
+
+impl PositiveOrNaN<'_> {
+    fn negative_if_positive(self) -> StringNumber {
+        match self {
+            PositiveOrNaN::Positive(p) => p.negative().into(),
+            PositiveOrNaN::NaN => StringNumber::nan(),
+        }
+    }
+}
+
+impl<'s> From<PositiveNumber<'s>> for PositiveOrNaN<'s> {
+    fn from(p: PositiveNumber<'s>) -> Self {
+        PositiveOrNaN::Positive(p)
     }
 }
 
 #[derive(Debug)]
 struct NegativeNumber<'s> {
-    s: &'s str,
+    s: Cow<'s, str>,
     // decimal_index >= 1
     decimal_index: usize,
 }
@@ -619,12 +695,12 @@ impl<'s> NegativeNumber<'s> {
         };
 
         Self {
-            s: stripped,
+            s: stripped.into(),
             decimal_index,
         }
     }
 
-    fn positive(&self) -> PositiveNumber {
+    fn positive(self) -> PositiveNumber<'s> {
         PositiveNumber {
             s: self.s,
             decimal_index: self.decimal_index,
@@ -634,7 +710,7 @@ impl<'s> NegativeNumber<'s> {
 
 impl GetDigit for NegativeNumber<'_> {
     fn str(&self) -> &str {
-        self.s
+        &self.s
     }
 
     fn decimal_index(&self) -> usize {
@@ -656,12 +732,13 @@ trait GetDigit {
             index -= 1;
         }
 
+        // TODO is checked sub necessary?
         if let Some(byte_index) = (self.decimal_index() as isize).checked_sub(index + 1) {
             self.str()
                 .as_bytes()
                 .get(byte_index as usize)
                 .map_or(0, |&b| match b {
-                    b'-' => 0,
+                    b'-' => 0, // TODO probably not necessary
                     _ => ascii_to_number(b),
                 })
         } else {
@@ -823,8 +900,7 @@ mod tests {
         #[case] expected_left_most_index: isize,
         #[case] expected_right_most_index: isize,
     ) {
-        let sn = StringNumber::from(f);
-        let number = PositiveNumber::new(&sn.0);
+        let number = PositiveNumber::from(f);
         assert_eq!(number.left_most_index(), expected_left_most_index);
         assert_eq!(number.right_most_index(), expected_right_most_index);
     }
@@ -846,7 +922,7 @@ mod tests {
     ) {
         assert_eq!(
             PositiveNumber::digits_to_string(digits, decimal_index),
-            StringNumber(expected.to_string())
+            expected
         );
     }
 
@@ -863,13 +939,13 @@ mod tests {
     #[case(1.0, -1, 0.1)] // 5
     #[case(0.1, 1, 1.0)] // 6
     #[case(0.1, -1, 0.01)] // 7
-    #[case(-10.2, 2, -1020.0)] // 8
-    #[case(-1.2, -1, -0.12)] // 9
-    #[case(-1.2, -2, -0.012)] // 10
+    #[case(10.2, 2, 1020.0)] // 8
+    #[case(1.2, -1, 0.12)] // 9
+    #[case(1.2, -2, 0.012)] // 10
     fn mul_10_power(#[case] number: f64, #[case] power: isize, #[case] expected: f64) {
         assert_eq!(
-            StringNumber::from(number).mul_10_power(power),
-            StringNumber::from(expected)
+            PositiveNumber::from(number).mul_10_power(power),
+            PositiveNumber::from(expected)
         );
     }
 
@@ -888,31 +964,30 @@ mod tests {
     #[case(12.34, 9, 111.06)]
     #[case(12.34, 0, 0.0)]
     fn mul_by_single_digit(#[case] number: f64, #[case] n: u8, #[case] expected: f64) {
-        let sn = StringNumber::from(number);
         assert_eq!(
-            PositiveNumber::new(&sn.0).mul_by_single_digit(n),
-            StringNumber::from(expected)
+            PositiveNumber::from(number).mul_by_single_digit(n),
+            PositiveNumber::from(expected)
         );
     }
 
     #[rstest]
-    #[case(0.0, 0.0, 0.0)] // 0
-    #[case(0.0, 1.0, 0.0)] // 1
-    #[case(1.0, 0.0, 0.0)] // 2
-    #[case(1.0, 1.0, 1.0)] // 3
-    #[case(12.0, 1.0, 12.0)] // 4
-    #[case(1.0, 12.0, 12.0)] // 5
-    #[case(12.0, 34.0, 408.0)] // 6
-    #[case(7.9, 6.8, 53.72)] // 7
-    #[case(1.0, -1.0, -1.0)] // 8
-    #[case(-1.0, 1.0, -1.0)] // 9
-    #[case(-1.0, -1.0, 1.0)] // 10
-    #[case(f64::NAN, 0.0, f64::NAN)] // 11
-    #[case(0.0, f64::NAN, f64::NAN)] // 12
-    #[case(f64::INFINITY, 1.0, f64::INFINITY)] // 13
-    #[case(1.0, f64::INFINITY, f64::INFINITY)] // 14
-    #[case(f64::INFINITY, 0.0, f64::NAN)] // 15
-    #[case(0.0, f64::INFINITY, f64::NAN)] // 16
+    #[case(0.0, 0.0, 0.0)] // 1
+    #[case(0.0, 1.0, 0.0)] // 2
+    #[case(1.0, 0.0, 0.0)] // 3
+    #[case(1.0, 1.0, 1.0)] // 4
+    #[case(12.0, 1.0, 12.0)] // 5
+    #[case(1.0, 12.0, 12.0)] // 6
+    #[case(12.0, 34.0, 408.0)] // 7
+    #[case(7.9, 6.8, 53.72)] // 8
+    #[case(1.0, -1.0, -1.0)] // 9
+    #[case(-1.0, 1.0, -1.0)] // 10
+    #[case(-1.0, -1.0, 1.0)] // 11
+    #[case(f64::NAN, 0.0, f64::NAN)] // 12
+    #[case(0.0, f64::NAN, f64::NAN)] // 13
+    #[case(f64::INFINITY, 1.0, f64::INFINITY)] // 14
+    #[case(1.0, f64::INFINITY, f64::INFINITY)] // 15
+    #[case(f64::INFINITY, 0.0, f64::NAN)] // 16
+    #[case(0.0, f64::INFINITY, f64::NAN)] // 17
     fn mul(#[case] a: f64, #[case] b: f64, #[case] expected: f64) {
         assert_eq!(
             StringNumber::from(a) * StringNumber::from(b),
