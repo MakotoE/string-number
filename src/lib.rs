@@ -1,7 +1,7 @@
 use bigdecimal::BigDecimal;
 use std::borrow::Cow;
 use std::cmp::Ordering;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::mem::take;
 use std::ops::{Add, AddAssign, Div, Mul, MulAssign, Sub, SubAssign};
 
@@ -379,13 +379,7 @@ impl<'s> PositiveNumber<'s> {
             bytes.push(b'0');
             decimal_index += 1;
         }
-        bytes.extend(
-            digits
-                .iter()
-                .rev()
-                .copied()
-                .map(PositiveNumber::number_to_ascii),
-        );
+        bytes.extend(digits.iter().rev().copied().map(|n| n + b'0'));
 
         bytes.insert(decimal_index, b'.');
         // bytes ends with '.'
@@ -394,10 +388,6 @@ impl<'s> PositiveNumber<'s> {
         }
 
         String::from_utf8(bytes).unwrap()
-    }
-
-    fn number_to_ascii(n: u8) -> u8 {
-        n + b'0'
     }
 
     /// self must not be infinity. n <= 9.
@@ -651,7 +641,7 @@ impl<'s> Div for PositiveNumber<'s> {
             result += counter;
         }
 
-        Cow::from((result as f64).to_string()).into()
+        (result as f64).into()
     }
 }
 
@@ -726,29 +716,22 @@ trait GetDigit {
     /// -1 = 1/10th digit
     /// 0 = 1s digit
     /// 1 = 10s digit
+    /// Returns 0 if out of bounds
     fn get_digit(&self, mut index: isize) -> u8 {
         if index < 0 {
             // Skip past decimal point
             index -= 1;
         }
 
-        // TODO is checked sub necessary?
-        if let Some(byte_index) = (self.decimal_index() as isize).checked_sub(index + 1) {
+        if let Ok(byte_index) = usize::try_from(self.decimal_index() as isize - (index + 1)) {
             self.str()
                 .as_bytes()
-                .get(byte_index as usize)
-                .map_or(0, |&b| match b {
-                    b'-' => 0, // TODO probably not necessary
-                    _ => ascii_to_number(b),
-                })
+                .get(byte_index)
+                .map_or(0, |b| b - b'0')
         } else {
             0
         }
     }
-}
-
-fn ascii_to_number(b: u8) -> u8 {
-    b - b'0'
 }
 
 #[cfg(test)]
@@ -1026,7 +1009,7 @@ mod tests {
         assert_eq!(
             StringNumber::from(a) / StringNumber::from(b),
             StringNumber::from(expected)
-        )
+        );
     }
 
     #[test]
