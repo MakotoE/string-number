@@ -248,29 +248,6 @@ impl MulAssign for StringNumber {
     }
 }
 
-impl Div for StringNumber {
-    type Output = StringNumber;
-
-    fn div(self, rhs: Self) -> Self::Output {
-        let lhs = Number::new(&self.0);
-        let rhs = Number::new(&rhs.0);
-
-        match lhs {
-            Number::NaN => StringNumber::nan(),
-            Number::Positive(l) => match rhs {
-                Number::NaN => StringNumber::nan(),
-                Number::Positive(r) => (l / r).into(),
-                Number::Negative(r) => (l / r.positive()).negative().into(),
-            },
-            Number::Negative(l) => match rhs {
-                Number::NaN => StringNumber::nan(),
-                Number::Positive(r) => (l.positive() / r).negative().into(),
-                Number::Negative(r) => (l.positive() / r.positive()).into(),
-            },
-        }
-    }
-}
-
 #[derive(Debug)]
 enum Number<'s> {
     Positive(PositiveNumber<'s>),
@@ -290,7 +267,7 @@ impl<'s> Number<'s> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 struct PositiveNumber<'s> {
     s: Cow<'s, str>,
     // decimal_index >= 1
@@ -615,47 +592,24 @@ impl<'s> Mul for PositiveNumber<'s> {
     }
 }
 
-impl<'s> Div for PositiveNumber<'s> {
-    type Output = PositiveNumber<'s>;
-
-    /// Adopted from https://github.com/phishman3579/java-algorithms-implementation
-    fn div(self, rhs: Self) -> Self::Output {
-        assert_ne!(rhs.s, ZERO);
-
-        let mut abs_a: i64 = f64::from(StringNumber(self.s.to_string())) as i64;
-        let abs_b: i64 = f64::from(StringNumber(rhs.s.to_string())) as i64;
-        let mut temp_a = 0_i64;
-        let mut temp_b = 0_i64;
-        let mut counter = 0_i64;
-
-        let mut result = 0_i64;
-        while abs_a >= abs_b {
-            temp_a = abs_a / 2;
-            temp_b = abs_b;
-            counter = 1;
-            while temp_a >= temp_b {
-                temp_b *= 2;
-                counter *= 2;
-            }
-            abs_a -= temp_b;
-            result += counter;
-        }
-
-        (result as f64).into()
-    }
-}
-
 #[derive(Debug)]
 enum PositiveOrNaN<'s> {
     Positive(PositiveNumber<'s>),
     NaN,
 }
 
-impl PositiveOrNaN<'_> {
+impl<'s> PositiveOrNaN<'s> {
     fn negative_if_positive(self) -> StringNumber {
         match self {
             PositiveOrNaN::Positive(p) => p.negative().into(),
             PositiveOrNaN::NaN => StringNumber::nan(),
+        }
+    }
+
+    fn unwrap_positive(self) -> PositiveNumber<'s> {
+        match self {
+            PositiveOrNaN::Positive(p) => p,
+            PositiveOrNaN::NaN => panic!("number is NaN"),
         }
     }
 }
@@ -997,24 +951,6 @@ mod tests {
         let mut result = s.to_string();
         StringNumber::fix_zeros(&mut result);
         assert_eq!(result, expected);
-    }
-
-    #[rstest]
-    #[case(0.0, 1.0, 0.0)] // 1
-    #[case(1.0, 1.0, 1.0)] // 2
-    #[case(2.0, 1.0, 2.0)] // 3
-    #[case(3.0, 2.0, 1.0)] // 4
-    #[case(2.0, 3.0, 0.0)] // 5
-    fn div(#[case] a: f64, #[case] b: f64, #[case] expected: f64) {
-        assert_eq!(
-            StringNumber::from(a) / StringNumber::from(b),
-            StringNumber::from(expected)
-        );
-    }
-
-    #[test]
-    fn div_by_zero() {
-        assert!(catch_unwind_silent(|| StringNumber::from(0.0) / StringNumber::from(0.0)).is_err());
     }
 
     #[derive(Debug, Clone)]
