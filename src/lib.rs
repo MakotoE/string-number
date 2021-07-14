@@ -630,12 +630,12 @@ impl<'s> Div for PositiveNumber<'s> {
 
         let mut result = 0_i64;
         while abs_a >= abs_b {
-            temp_a = abs_a >> 1;
+            temp_a = abs_a / 2;
             temp_b = abs_b;
             counter = 1;
             while temp_a >= temp_b {
-                temp_b <<= 1;
-                counter <<= 1;
+                temp_b *= 2;
+                counter *= 2;
             }
             abs_a -= temp_b;
             result += counter;
