@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::convert::{TryFrom, TryInto};
 use std::mem::take;
-use std::ops::{Add, AddAssign, Div, Mul, MulAssign, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Mul, MulAssign, Sub, SubAssign};
 
 const INFINITY_STR: &str = "inf";
 const NEG_INFINITY_STR: &str = "-inf";
@@ -603,13 +603,6 @@ impl<'s> PositiveOrNaN<'s> {
         match self {
             PositiveOrNaN::Positive(p) => p.negative().into(),
             PositiveOrNaN::NaN => StringNumber::nan(),
-        }
-    }
-
-    fn unwrap_positive(self) -> PositiveNumber<'s> {
-        match self {
-            PositiveOrNaN::Positive(p) => p,
-            PositiveOrNaN::NaN => panic!("number is NaN"),
         }
     }
 }
