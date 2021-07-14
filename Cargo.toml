@@ -3,6 +3,14 @@ name = "string-number"
 version = "0.1.0"
 edition = "2018"
 
+[[bench]]
+name = "benchmark"
+path = "benches/benchmark.rs"
+harness = false
+
+[lib]
+bench = false
+
 [dependencies]
 anyhow = "1.0"
 bigdecimal = "0.2"
@@ -12,3 +20,5 @@ rstest = "0.10"
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
 num-bigint = "0.3"
+lazy_static = "1.4"
+criterion = { version = "0.3", features = ["html_reports"]}
