@@ -20,24 +20,31 @@ impl Default for StringNumber {
     }
 }
 
-impl From<f64> for StringNumber {
-    fn from(n: f64) -> Self {
-        let mut s = n.to_string();
-        if !(s == INFINITY_STR || s == NEG_INFINITY_STR || s == NAN_STR || s.contains(DECIMAL)) {
-            // Number string should end with ".0"
-            s.push_str(".0");
+macro_rules! impl_from {
+    ($type:ty) => {
+        impl From<$type> for StringNumber {
+            fn from(number: $type) -> Self {
+                let mut s = number.to_string();
+                StringNumber::fix_zeros(&mut s);
+                Self(s)
+            }
         }
-        Self(s)
-    }
+    };
 }
 
-impl From<&BigDecimal> for StringNumber {
-    fn from(bd: &BigDecimal) -> Self {
-        let mut s = bd.to_string();
-        StringNumber::fix_zeros(&mut s);
-        Self(s)
-    }
-}
+impl_from!(f64);
+impl_from!(f32);
+impl_from!(u64);
+impl_from!(i64);
+impl_from!(u32);
+impl_from!(i32);
+impl_from!(u16);
+impl_from!(i16);
+impl_from!(u8);
+impl_from!(i8);
+impl_from!(isize);
+impl_from!(usize);
+impl_from!(&BigDecimal);
 
 impl From<StringNumber> for f64 {
     /// Doesn't return correct NaN value
