@@ -34,9 +34,9 @@ test f64_sub ... bench:           0 ns/iter (+/- 0)
 
 test f64_mul ... bench:           0 ns/iter (+/- 0)
 
-test string_add ... bench:         138 ns/iter (+/- 1)
+test string_add ... bench:         135 ns/iter (+/- 3)
 
-test string_sub ... bench:         177 ns/iter (+/- 8)
+test string_sub ... bench:         187 ns/iter (+/- 14)
 
-test string_mul ... bench:         976 ns/iter (+/- 3)
+test string_mul ... bench:         972 ns/iter (+/- 5)
  */
