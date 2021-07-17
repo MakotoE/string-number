@@ -2,7 +2,6 @@ use bigdecimal::BigDecimal;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::convert::{TryFrom, TryInto};
-use std::iter::repeat;
 use std::mem::take;
 use std::ops::{Add, AddAssign, Mul, MulAssign, Sub, SubAssign};
 
@@ -406,10 +405,7 @@ impl<'s> PositiveNumber<'s> {
         s.remove(decimal_index);
         let mut new_decimal_index = decimal_index as isize + power;
         if new_decimal_index <= 0 {
-            let mut prefix: String = repeat('0')
-                .take(new_decimal_index.abs() as usize + 1)
-                .collect();
-            s = prefix + &s;
+            s.insert_str(0, &"0".repeat(new_decimal_index.abs() as usize + 1));
             new_decimal_index = 1;
         } else if new_decimal_index >= s.len() as isize {
             for _ in 0..=new_decimal_index {
