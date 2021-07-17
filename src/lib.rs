@@ -48,7 +48,7 @@ impl From<StringNumber> for f64 {
 
 impl From<PositiveNumber<'_>> for StringNumber {
     fn from(p: PositiveNumber<'_>) -> Self {
-        StringNumber(p.s.to_string())
+        StringNumber(p.s.into_owned())
     }
 }
 
@@ -398,8 +398,8 @@ impl<'s> PositiveNumber<'s> {
         }
     }
 
-    fn mul_10_power(mut self, power: isize) -> PositiveNumber<'s> {
-        let mut s = self.s.to_string();
+    fn mul_10_power(self, power: isize) -> PositiveNumber<'s> {
+        let mut s = self.s.into_owned();
 
         let decimal_index = s.find(DECIMAL).unwrap();
         s.remove(decimal_index);
@@ -408,15 +408,12 @@ impl<'s> PositiveNumber<'s> {
             s.insert_str(0, &"0".repeat(new_decimal_index.abs() as usize + 1));
             new_decimal_index = 1;
         } else if new_decimal_index >= s.len() as isize {
-            for _ in 0..=new_decimal_index {
-                s.push('0');
-            }
+            s.push_str(&"0".repeat(new_decimal_index.abs() as usize + 1));
         }
         s.insert(new_decimal_index.try_into().unwrap(), DECIMAL);
         StringNumber::fix_zeros(&mut s);
 
-        self = Cow::from(s).into();
-        self
+        Cow::from(s).into()
     }
 }
 
@@ -580,7 +577,7 @@ impl<'s> Mul for PositiveNumber<'s> {
         }
 
         if result.s.ends_with('0') && !result.s.ends_with(".0") {
-            let mut s = result.s.to_string();
+            let mut s = result.s.into_owned();
             s.pop();
             result.s = s.into();
         }
