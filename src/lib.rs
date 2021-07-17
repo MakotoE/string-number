@@ -1,3 +1,4 @@
+#[cfg(any(test, feature = "big_decimal"))]
 use bigdecimal::BigDecimal;
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -11,6 +12,7 @@ const NAN_STR: &str = "NaN";
 const DECIMAL: char = '.';
 const ZERO: &str = "0.0";
 
+/// A decimal number type that stores the number as a string.
 #[derive(Debug, Clone, Eq)]
 pub struct StringNumber(String);
 
@@ -20,25 +22,22 @@ impl Default for StringNumber {
     }
 }
 
-impl From<f64> for StringNumber {
-    fn from(number: f64) -> Self {
-        let mut s = number.to_string();
-        if !matches!(s.as_str(), NAN_STR | INFINITY_STR | NEG_INFINITY_STR) {
-            StringNumber::fix_zeros(&mut s);
+macro_rules! impl_from_float {
+    ($type:ty) => {
+        impl From<$type> for StringNumber {
+            fn from(number: $type) -> Self {
+                let mut s = number.to_string();
+                if !matches!(s.as_str(), NAN_STR | INFINITY_STR | NEG_INFINITY_STR) {
+                    StringNumber::fix_zeros(&mut s);
+                }
+                Self(s)
+            }
         }
-        Self(s)
-    }
+    };
 }
 
-impl From<f32> for StringNumber {
-    fn from(number: f32) -> Self {
-        let mut s = number.to_string();
-        if !matches!(s.as_str(), NAN_STR | INFINITY_STR | NEG_INFINITY_STR) {
-            StringNumber::fix_zeros(&mut s);
-        }
-        Self(s)
-    }
-}
+impl_from_float!(f64);
+impl_from_float!(f32);
 
 macro_rules! impl_from {
     ($type:ty) => {
@@ -602,6 +601,7 @@ impl<'s> Mul for PositiveNumber<'s> {
                 .mul_10_power(rhs_index);
         }
 
+        // Remove extra trailing 0
         if result.s.ends_with('0') && !result.s.ends_with(".0") {
             let mut s = result.s.into_owned();
             s.pop();
