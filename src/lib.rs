@@ -20,6 +20,26 @@ impl Default for StringNumber {
     }
 }
 
+impl From<f64> for StringNumber {
+    fn from(number: f64) -> Self {
+        let mut s = number.to_string();
+        if !matches!(s.as_str(), NAN_STR | INFINITY_STR | NEG_INFINITY_STR) {
+            StringNumber::fix_zeros(&mut s);
+        }
+        Self(s)
+    }
+}
+
+impl From<f32> for StringNumber {
+    fn from(number: f32) -> Self {
+        let mut s = number.to_string();
+        if !matches!(s.as_str(), NAN_STR | INFINITY_STR | NEG_INFINITY_STR) {
+            StringNumber::fix_zeros(&mut s);
+        }
+        Self(s)
+    }
+}
+
 macro_rules! impl_from {
     ($type:ty) => {
         impl From<$type> for StringNumber {
@@ -32,8 +52,6 @@ macro_rules! impl_from {
     };
 }
 
-impl_from!(f64);
-impl_from!(f32);
 impl_from!(u64);
 impl_from!(i64);
 impl_from!(u32);
