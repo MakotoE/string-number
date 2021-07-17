@@ -44,6 +44,7 @@ impl_from!(u8);
 impl_from!(i8);
 impl_from!(isize);
 impl_from!(usize);
+#[cfg(any(test, feature = "big_decimal"))]
 impl_from!(&BigDecimal);
 
 impl From<StringNumber> for f64 {
