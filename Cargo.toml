@@ -1,12 +1,13 @@
 [package]
 name = "string-number"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2018"
 authors = ["Makoto <makoto@emurasoft.com>"]
 documentation = "https://docs.rs/string-number/"
 license = "MIT"
 description = "StringNumber is a decimal number type that stores the number as a string."
 repository = "https://github.com/MakotoE/string-number"
+readme = "README.md"
 
 [[bench]]
 name = "benchmark"
@@ -18,9 +19,10 @@ bench = false
 
 [features]
 # BigDecimal conversion
-big_decimal = []
+big_decimal = ["bigdecimal"]
 
 [dependencies]
+bigdecimal = { version = "0.2", optional = true }
 
 [dev-dependencies]
 rstest = "0.10"
@@ -29,4 +31,3 @@ quickcheck_macros = "1.0"
 num-bigint = "0.3"
 lazy_static = "1.4"
 criterion = { version = "0.3", features = ["html_reports"]}
-bigdecimal = "0.2"
