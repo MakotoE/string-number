@@ -1,3 +1,5 @@
+[![Latest version](https://img.shields.io/crates/v/string-number.svg)](https://crates.io/crates/string-number) [![Documentation](https://docs.rs/string-number/badge.svg)](https://docs.rs/string-number/)
+
 `StringNumber` is a decimal number type that stores the number as a string.
 
 The "rules" that are followed for the implementation of `StringNumber` are:
