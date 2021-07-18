@@ -1,8 +1,10 @@
+use anyhow::Error;
 #[cfg(any(test, feature = "big_decimal"))]
 use bigdecimal::BigDecimal;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::convert::{TryFrom, TryInto};
+use std::fmt::{Display, Formatter};
 use std::mem::take;
 use std::ops::{Add, AddAssign, Mul, MulAssign, Sub, SubAssign};
 
@@ -13,7 +15,7 @@ const DECIMAL: char = '.';
 const ZERO: &str = "0.0";
 
 /// A decimal number type that stores the number as a string.
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone, Eq, Hash)]
 pub struct StringNumber(String);
 
 impl Default for StringNumber {
@@ -22,7 +24,7 @@ impl Default for StringNumber {
     }
 }
 
-macro_rules! impl_from_float {
+macro_rules! impl_float_conversion {
     ($type:ty) => {
         impl From<$type> for StringNumber {
             fn from(number: $type) -> Self {
@@ -33,13 +35,22 @@ macro_rules! impl_from_float {
                 Self(s)
             }
         }
+
+        impl TryFrom<StringNumber> for $type {
+            type Error = Error;
+
+            /// Doesn't return correct NaN value
+            fn try_from(value: StringNumber) -> Result<Self, Self::Error> {
+                value.0.parse().map_err(|e| Error::new(e))
+            }
+        }
     };
 }
 
-impl_from_float!(f64);
-impl_from_float!(f32);
+impl_float_conversion!(f64);
+impl_float_conversion!(f32);
 
-macro_rules! impl_from {
+macro_rules! impl_conversion {
     ($type:ty) => {
         impl From<$type> for StringNumber {
             fn from(number: $type) -> Self {
@@ -48,26 +59,43 @@ macro_rules! impl_from {
                 Self(s)
             }
         }
+
+        impl TryFrom<StringNumber> for $type {
+            type Error = Error;
+
+            fn try_from(value: StringNumber) -> Result<Self, Self::Error> {
+                value.0.parse().map_err(|e| Error::new(e))
+            }
+        }
     };
 }
 
-impl_from!(u64);
-impl_from!(i64);
-impl_from!(u32);
-impl_from!(i32);
-impl_from!(u16);
-impl_from!(i16);
-impl_from!(u8);
-impl_from!(i8);
-impl_from!(isize);
-impl_from!(usize);
-#[cfg(any(test, feature = "big_decimal"))]
-impl_from!(&BigDecimal);
+impl_conversion!(u64);
+impl_conversion!(i64);
+impl_conversion!(u32);
+impl_conversion!(i32);
+impl_conversion!(u16);
+impl_conversion!(i16);
+impl_conversion!(u8);
+impl_conversion!(i8);
+impl_conversion!(isize);
+impl_conversion!(usize);
 
-impl From<StringNumber> for f64 {
-    /// Doesn't return correct NaN value
-    fn from(s: StringNumber) -> Self {
-        s.0.parse().unwrap()
+#[cfg(any(test, feature = "big_decimal"))]
+impl From<&BigDecimal> for StringNumber {
+    fn from(number: &BigDecimal) -> Self {
+        let mut s = number.to_string();
+        StringNumber::fix_zeros(&mut s);
+        Self(s)
+    }
+}
+
+#[cfg(any(test, feature = "big_decimal"))]
+impl TryFrom<StringNumber> for BigDecimal {
+    type Error = Error;
+
+    fn try_from(value: StringNumber) -> Result<Self, Self::Error> {
+        value.0.parse().map_err(|e| Error::new(e))
     }
 }
 
@@ -144,6 +172,12 @@ impl StringNumber {
         while s.ends_with('0') && !s.ends_with(".0") {
             s.pop();
         }
+    }
+}
+
+impl Display for StringNumber {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.0)
     }
 }
 

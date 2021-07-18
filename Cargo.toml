@@ -23,6 +23,7 @@ big_decimal = ["bigdecimal"]
 
 [dependencies]
 bigdecimal = { version = "0.2", optional = true }
+anyhow = "1.0"
 
 [dev-dependencies]
 rstest = "0.10"
@@ -31,3 +32,4 @@ quickcheck_macros = "1.0"
 num-bigint = "0.3"
 lazy_static = "1.4"
 criterion = { version = "0.3", features = ["html_reports"]}
+bigdecimal = "0.2"
