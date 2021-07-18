@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::mem::take;
 use std::ops::{Add, AddAssign, Mul, MulAssign, Sub, SubAssign};
 
@@ -15,7 +16,7 @@ const DECIMAL: char = '.';
 const ZERO: &str = "0.0";
 
 /// A decimal number type that stores the number as a string.
-#[derive(Debug, Clone, Eq, Hash)]
+#[derive(Debug, Clone, Eq)]
 pub struct StringNumber(String);
 
 impl Default for StringNumber {
@@ -41,7 +42,7 @@ macro_rules! impl_float_conversion {
 
             /// Doesn't return correct NaN value
             fn try_from(value: StringNumber) -> Result<Self, Self::Error> {
-                value.0.parse().map_err(|e| Error::new(e))
+                value.0.parse().map_err(Error::new)
             }
         }
     };
@@ -64,7 +65,7 @@ macro_rules! impl_conversion {
             type Error = Error;
 
             fn try_from(value: StringNumber) -> Result<Self, Self::Error> {
-                value.0.parse().map_err(|e| Error::new(e))
+                value.0.parse().map_err(Error::new)
             }
         }
     };
@@ -95,7 +96,7 @@ impl TryFrom<StringNumber> for BigDecimal {
     type Error = Error;
 
     fn try_from(value: StringNumber) -> Result<Self, Self::Error> {
-        value.0.parse().map_err(|e| Error::new(e))
+        value.0.parse().map_err(Error::new)
     }
 }
 
@@ -216,6 +217,16 @@ impl PartialEq for StringNumber {
             true
         } else {
             self.0 == other.0
+        }
+    }
+}
+
+impl Hash for StringNumber {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        if self.is_zero() {
+            ZERO.hash(state);
+        } else {
+            self.0.hash(state);
         }
     }
 }
