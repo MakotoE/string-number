@@ -1,6 +1,6 @@
 [package]
 name = "string-number"
-version = "0.1.1"
+version = "0.2.1"
 edition = "2018"
 authors = ["Makoto <makoto@emurasoft.com>"]
 documentation = "https://docs.rs/string-number/"
