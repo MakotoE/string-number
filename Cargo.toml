@@ -2,6 +2,11 @@
 name = "string-number"
 version = "0.1.0"
 edition = "2018"
+authors = ["Makoto <makoto@emurasoft.com>"]
+documentation = "https://docs.rs/string-number/"
+license = "MIT"
+description = "StringNumber is a decimal number type that stores the number as a string."
+repository = "https://github.com/MakotoE/string-number"
 
 [[bench]]
 name = "benchmark"

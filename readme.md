@@ -3,7 +3,7 @@
 The "rules" that are followed for the implementation of `StringNumber` are:
 
 - Only the string representation of the number may be stored, excluding local variables.
-- For the operations: no conversion from `StringNumber` to a different type. Only one digit of the number may be converted at a time.
+- For operations: no conversion from `StringNumber` to a different type. Only one digit of the number may be converted at a time.
 
 As you might expect, the benchmark results are horrible compared to those of `f64`.
 
@@ -19,5 +19,5 @@ test string_mul ... bench:         972 ns/iter (+/- 5)
 But this doesn't mean that `StringNumber` is completely useless. Here are some reasons why you might want to use `StringNumber`:
 
 ```
-// TODO think of a reason out why anyone would use it
+// TODO think of a reason why anyone would want to use it
 ```
